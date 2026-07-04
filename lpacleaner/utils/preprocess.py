@@ -92,22 +92,32 @@ def detect_fingers(
     skin_mask = cv2.morphologyEx(skin_mask, cv2.MORPH_CLOSE, kernel)
     skin_mask = cv2.morphologyEx(skin_mask, cv2.MORPH_OPEN, kernel)
 
-    # Keep only components touching the border and large enough
+    # Keep only components that look like fingers:
+    # - Touch the image border
+    # - Area between 1% and 15% of image (fingers are localized, not page-wide)
+    # - Bounding box aspect ratio < 4:1 (fingers are blob-shaped, not thin
+    #   horizontal lines like staff lines or thin vertical bars)
     h, w = skin_mask.shape
-    min_area = int(h * w * _FINGER_MIN_AREA_FRAC)
+    img_area = h * w
+    min_area = int(img_area * _FINGER_MIN_AREA_FRAC)
+    max_area = int(img_area * 0.15)
 
     num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(skin_mask, connectivity=8)
     result = np.zeros_like(skin_mask)
 
     for i in range(1, num_labels):
         area = stats[i, cv2.CC_STAT_AREA]
-        if area < min_area:
+        if area < min_area or area > max_area:
             continue
 
         x = stats[i, cv2.CC_STAT_LEFT]
         y = stats[i, cv2.CC_STAT_TOP]
         cw = stats[i, cv2.CC_STAT_WIDTH]
         ch = stats[i, cv2.CC_STAT_HEIGHT]
+
+        aspect = max(cw, ch) / max(min(cw, ch), 1)
+        if aspect > 4.0:
+            continue
 
         touches_border = (x == 0 or y == 0 or x + cw >= w or y + ch >= h)
         if touches_border:
