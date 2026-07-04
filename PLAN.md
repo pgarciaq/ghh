@@ -178,6 +178,28 @@ book characteristics. Runs automatically as part of `lpacleaner run` if no
 lpacleaner analyze INPUT_DIR [--output-dir OUTPUT_DIR] [--samples 15]
 ```
 
+### Robustness on Raw Images
+
+The analyze command runs on raw, un-preprocessed images. These may contain
+fingers, hotspots, partial overlaps, dark covers, camera distortions, and
+large non-page areas (table surfaces). To produce reliable results:
+
+- **Median-based statistics**: All measurements use medians (not means)
+  across the sample set. A single outlier image (e.g., a cover shot, a
+  heavily fingered page) does not skew the results.
+- **Outlier rejection**: For each metric, discard values more than 2 MAD
+  (median absolute deviations) from the median before computing the final
+  calibration value.
+- **Sample selection**: After partial photo and cover detection (steps 1-2),
+  analyze only uses standalone page images. It skips covers, spine shots,
+  and partial photos (which have distorted page geometry).
+- **Page cropping before measurement**: Steps 3-7 crop to the detected page
+  quad before measuring ink color, layout, etc. This excludes table
+  surfaces, fingers, and adjacent-page bleed from the measurements.
+- **Graceful degradation**: If fewer than 3 valid samples remain after
+  filtering, analyze emits a WARNING and falls back to built-in defaults,
+  setting `config_source = "defaults"` in pipeline.json.
+
 ### Algorithm
 
 ```
@@ -924,6 +946,21 @@ enhance_binarize_c: int = 15
 
 - Input: deskewed image from `08_deskewed/`
 - Output: enhanced image in `09_enhanced/`
+
+### Future: Parchment Recto/Verso Handling (GitHub #2)
+
+Historical manuscripts from ~1700s are written on parchment (animal skin),
+which has distinct recto (hair-side, smoother, whiter) and verso (flesh-side,
+rougher, yellower) characteristics. Within the same bifolium, alternating
+pages naturally have different base colors and ink absorption.
+
+Current approach: all pages treated identically. This produces acceptable
+results but may over-correct recto pages or under-correct verso pages.
+
+Future refinement: detect recto/verso automatically via base-color histogram
+analysis, then apply enhancement parameters per-group. Stage 10 (normalize)
+should normalize within recto and verso groups separately rather than forcing
+all pages to the same white point.
 
 ---
 
@@ -2382,7 +2419,28 @@ class TestCLI:
     def test_review_generates_contact_sheet(self, tmp_path): ...
 ```
 
-#### 4. Regression Tests (golden reference, run on real images)
+#### 4. Real Image Smoke Test (after Stage 2)
+
+Planned after Stage 2 (orientation) is complete. Runs Stages 0-1-2 on
+a small set (5-10) of real LPA-1 images to validate that:
+
+1. Stage 0: hotspot/finger detection doesn't produce artifacts on real photos
+2. Stage 1: grouping correctly identifies the known partial photo set
+   (IMG_0232-0234) and excludes the book cover (IMG_0231)
+3. Stage 2: orientation produces correctly rotated pages
+
+The smoke test is **not automated** -- it's a manual visual inspection of
+checkpoint outputs. Results inform whether synthetic test parameters need
+adjustment and which integration test paths to add (GitHub #3).
+
+Select images that cover common scenarios:
+- A normal standalone page
+- The book cover (IMG_0231)
+- The 3-image partial set (IMG_0232-0234)
+- A page with visible finger at the border
+- A page with uneven lighting
+
+#### 5. Regression Tests (golden reference, run on real images)
 
 Not part of the standard test suite (requires actual book photos),
 but available via `pytest -m regression`:
