@@ -23,6 +23,7 @@ import numpy as np
 
 from lpacleaner.config import Config
 from lpacleaner.utils.image_io import load_image
+from lpacleaner.utils.line_detect import count_horizontal_lines
 from lpacleaner.utils.page_find import crop_to_page, find_page_quad
 from lpacleaner.utils.stats import adaptive_sample_count, robust_median
 
@@ -196,7 +197,7 @@ def _detect_coarse_orientation(images: list[np.ndarray]) -> int:
             else:
                 rotated = small
 
-            count = _count_horizontal_lines(rotated)
+            count = count_horizontal_lines(rotated)
             if count > best_count:
                 best_count = count
                 best_angle = angle
@@ -209,41 +210,6 @@ def _detect_coarse_orientation(images: list[np.ndarray]) -> int:
     counter = Counter(votes)
     winner, _ = counter.most_common(1)[0]
     return winner
-
-
-def _count_horizontal_lines(img: np.ndarray) -> int:
-    """Count near-horizontal line segments via HoughLinesP."""
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if img.ndim == 3 else img
-
-    edges = cv2.Canny(gray, 50, 150)
-
-    lines = cv2.HoughLinesP(
-        edges,
-        rho=1,
-        theta=np.pi / 180,
-        threshold=40,
-        minLineLength=max(30, img.shape[1] // 10),
-        maxLineGap=15,
-    )
-
-    if lines is None:
-        return 0
-
-    count = 0
-    for line in lines:
-        seg = line.ravel()
-        if len(seg) < 4:
-            continue
-        x1, y1, x2, y2 = int(seg[0]), int(seg[1]), int(seg[2]), int(seg[3])
-        dx = x2 - x1
-        dy = y2 - y1
-        if dx == 0:
-            continue
-        angle_deg = abs(np.degrees(np.arctan2(dy, dx)))
-        if angle_deg < 15 or angle_deg > 165:
-            count += 1
-
-    return count
 
 
 # ---------------------------------------------------------------------------

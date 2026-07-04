@@ -91,7 +91,8 @@ class TestOrientationStageContract:
 class TestOrientationProcessImage:
     """Test process_image() for various orientation scenarios."""
 
-    def test_portrait_page_passes_through(self):
+    def test_upright_music_page_stays_upright(self):
+        """A portrait music page with horizontal staff lines stays as-is."""
         from lpacleaner.stages.orientation import OrientationStage
 
         stage = OrientationStage()
@@ -103,9 +104,27 @@ class TestOrientationProcessImage:
         assert result_img.shape == img.shape
         assert meta["stage"] == "orientation"
         assert meta["rotation_applied"] == 0
+        assert meta["orientation_method"] == "staff_lines"
 
-    def test_landscape_rotated_to_portrait(self):
-        """A landscape image (wider than tall) should be rotated to portrait."""
+    def test_sideways_music_page_rotated_to_upright(self):
+        """A music page stored sideways (staff lines vertical) should be rotated."""
+        from lpacleaner.stages.orientation import OrientationStage
+
+        stage = OrientationStage()
+        # Create portrait page then rotate CW to simulate sideways storage
+        page = make_music_page(width=300, height=400)
+        sideways = cv2.rotate(page, cv2.ROTATE_90_CLOCKWISE)
+        cfg = Config(input_dir=Path("/tmp"))
+
+        result_img, meta = stage.process_image(sideways, {}, cfg)
+
+        # Should detect more horizontal lines after 90° CCW and rotate
+        assert result_img.shape[0] > result_img.shape[1]  # portrait
+        assert meta["rotation_applied"] == 90
+        assert meta["orientation_method"] == "staff_lines"
+
+    def test_landscape_music_page_with_horizontal_lines_stays(self):
+        """A landscape image with horizontal staff lines should NOT be rotated."""
         from lpacleaner.stages.orientation import OrientationStage
 
         stage = OrientationStage()
@@ -114,40 +133,37 @@ class TestOrientationProcessImage:
 
         result_img, meta = stage.process_image(img, {}, cfg)
 
-        assert result_img.shape[0] == 400  # was width, now height
-        assert result_img.shape[1] == 300  # was height, now width
-        assert meta["rotation_applied"] == 90
-        assert "portrait" in meta["orientation_method"]
+        # Staff lines are already horizontal, so no rotation needed
+        assert result_img.shape == img.shape
+        assert meta["rotation_applied"] == 0
+        assert meta["orientation_method"] == "staff_lines"
 
-    def test_applies_coarse_rotation_offset(self):
-        """When cfg.coarse_rotation_offset=90, image is rotated 90° CCW."""
+    def test_text_page_portrait_stays(self):
+        """A portrait text page stays portrait (horizontal text lines count too)."""
         from lpacleaner.stages.orientation import OrientationStage
 
         stage = OrientationStage()
-        page = make_music_page(width=300, height=400)
-        # Simulate a sideways photo: rotate portrait page CW → landscape
-        rotated_input = cv2.rotate(page, cv2.ROTATE_90_CLOCKWISE)
-        cfg = Config(input_dir=Path("/tmp"), coarse_rotation_offset=90)
+        img = make_text_page(width=300, height=400)
+        cfg = Config(input_dir=Path("/tmp"))
 
-        result_img, meta = stage.process_image(rotated_input, {}, cfg)
+        result_img, meta = stage.process_image(img, {}, cfg)
 
-        # Coarse rotation restores portrait, no enforcement needed
+        assert result_img.shape == img.shape
+        assert meta["rotation_applied"] == 0
+
+    def test_blank_page_landscape_gets_portrait_fallback(self):
+        """A landscape blank page (no lines at all) gets portrait fallback."""
+        from lpacleaner.stages.orientation import OrientationStage
+
+        stage = OrientationStage()
+        img = np.full((300, 400, 3), (230, 220, 200), dtype=np.uint8)
+        cfg = Config(input_dir=Path("/tmp"))
+
+        result_img, meta = stage.process_image(img, {}, cfg)
+
         assert result_img.shape[0] > result_img.shape[1]  # portrait
         assert meta["rotation_applied"] == 90
-
-    def test_applies_180_rotation(self):
-        from lpacleaner.stages.orientation import OrientationStage
-
-        stage = OrientationStage()
-        page = make_music_page(width=300, height=400)
-        flipped = cv2.rotate(page, cv2.ROTATE_180)
-        cfg = Config(input_dir=Path("/tmp"), coarse_rotation_offset=180)
-
-        result_img, meta = stage.process_image(flipped, {}, cfg)
-
-        # 180° rotation preserves dimensions (still portrait)
-        assert result_img.shape == flipped.shape
-        assert meta["rotation_applied"] == 180
+        assert meta["orientation_method"] == "portrait_fallback"
 
     def test_computes_focus_score(self):
         from lpacleaner.stages.orientation import OrientationStage
@@ -185,19 +201,6 @@ class TestOrientationProcessImage:
         _, meta = stage.process_image(img, {}, cfg)
 
         assert meta["is_blurry"] is False
-
-    def test_text_page_graceful_degradation(self):
-        """A text-only page (no staff lines) should still be oriented."""
-        from lpacleaner.stages.orientation import OrientationStage
-
-        stage = OrientationStage()
-        img = make_text_page(width=300, height=400)
-        cfg = Config(input_dir=Path("/tmp"))
-
-        result_img, meta = stage.process_image(img, {}, cfg)
-
-        assert result_img.shape == img.shape
-        assert meta["stage"] == "orientation"
 
     def test_metadata_includes_orientation_method(self):
         from lpacleaner.stages.orientation import OrientationStage

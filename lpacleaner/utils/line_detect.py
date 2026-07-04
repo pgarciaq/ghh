@@ -361,3 +361,42 @@ def _circular_range(values: np.ndarray, period: int = 180) -> float:
     wrap_gap = period - sorted_vals[-1] + sorted_vals[0]
     max_gap = max(np.max(gaps), wrap_gap)
     return float(period - max_gap)
+
+
+def count_horizontal_lines(img: np.ndarray) -> int:
+    """Count near-horizontal line segments via Canny + HoughLinesP.
+
+    Used by analyze (coarse orientation) and Stage 2 (per-image orientation).
+    A line is "horizontal" if its angle is within 15° of the horizontal axis.
+    """
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if img.ndim == 3 else img
+
+    edges = cv2.Canny(gray, 50, 150)
+
+    lines = cv2.HoughLinesP(
+        edges,
+        rho=1,
+        theta=np.pi / 180,
+        threshold=40,
+        minLineLength=max(30, img.shape[1] // 10),
+        maxLineGap=15,
+    )
+
+    if lines is None:
+        return 0
+
+    count = 0
+    for line in lines:
+        seg = line.ravel()
+        if len(seg) < 4:
+            continue
+        x1, y1, x2, y2 = int(seg[0]), int(seg[1]), int(seg[2]), int(seg[3])
+        dx = x2 - x1
+        dy = y2 - y1
+        if dx == 0:
+            continue
+        angle_deg = abs(np.degrees(np.arctan2(dy, dx)))
+        if angle_deg < 15 or angle_deg > 165:
+            count += 1
+
+    return count
