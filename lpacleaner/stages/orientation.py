@@ -41,6 +41,16 @@ class OrientationStage(BaseStage):
         if rotation != 0:
             img = _apply_cardinal_rotation(img, rotation)
 
+        # Book pages should always be portrait (taller than wider).
+        # After EXIF rotation (applied at load time) some images may
+        # still be landscape if the camera was held sideways.
+        h, w = img.shape[:2]
+        if w > h:
+            img = cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
+            rotation = (rotation + 90) % 360
+            method = "portrait_enforce" if method == "none" else method + "+portrait"
+            logger.info("Rotated to portrait (%dx%d → %dx%d)", w, h, img.shape[1], img.shape[0])
+
         meta["rotation_applied"] = rotation
         meta["orientation_method"] = method
 

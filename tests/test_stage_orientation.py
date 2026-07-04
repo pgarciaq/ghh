@@ -91,11 +91,11 @@ class TestOrientationStageContract:
 class TestOrientationProcessImage:
     """Test process_image() for various orientation scenarios."""
 
-    def test_upright_page_passes_through(self):
+    def test_portrait_page_passes_through(self):
         from lpacleaner.stages.orientation import OrientationStage
 
         stage = OrientationStage()
-        img = make_music_page(width=400, height=300)
+        img = make_music_page(width=300, height=400)
         cfg = Config(input_dir=Path("/tmp"))
 
         result_img, meta = stage.process_image(img, {}, cfg)
@@ -104,31 +104,48 @@ class TestOrientationProcessImage:
         assert meta["stage"] == "orientation"
         assert meta["rotation_applied"] == 0
 
+    def test_landscape_rotated_to_portrait(self):
+        """A landscape image (wider than tall) should be rotated to portrait."""
+        from lpacleaner.stages.orientation import OrientationStage
+
+        stage = OrientationStage()
+        img = make_music_page(width=400, height=300)
+        cfg = Config(input_dir=Path("/tmp"))
+
+        result_img, meta = stage.process_image(img, {}, cfg)
+
+        assert result_img.shape[0] == 400  # was width, now height
+        assert result_img.shape[1] == 300  # was height, now width
+        assert meta["rotation_applied"] == 90
+        assert "portrait" in meta["orientation_method"]
+
     def test_applies_coarse_rotation_offset(self):
         """When cfg.coarse_rotation_offset=90, image is rotated 90° CCW."""
         from lpacleaner.stages.orientation import OrientationStage
 
         stage = OrientationStage()
-        page = make_music_page(width=400, height=300)
+        page = make_music_page(width=300, height=400)
+        # Simulate a sideways photo: rotate portrait page CW → landscape
         rotated_input = cv2.rotate(page, cv2.ROTATE_90_CLOCKWISE)
         cfg = Config(input_dir=Path("/tmp"), coarse_rotation_offset=90)
 
         result_img, meta = stage.process_image(rotated_input, {}, cfg)
 
-        assert result_img.shape[0] == rotated_input.shape[1]
-        assert result_img.shape[1] == rotated_input.shape[0]
+        # Coarse rotation restores portrait, no enforcement needed
+        assert result_img.shape[0] > result_img.shape[1]  # portrait
         assert meta["rotation_applied"] == 90
 
     def test_applies_180_rotation(self):
         from lpacleaner.stages.orientation import OrientationStage
 
         stage = OrientationStage()
-        page = make_music_page(width=400, height=300)
+        page = make_music_page(width=300, height=400)
         flipped = cv2.rotate(page, cv2.ROTATE_180)
         cfg = Config(input_dir=Path("/tmp"), coarse_rotation_offset=180)
 
         result_img, meta = stage.process_image(flipped, {}, cfg)
 
+        # 180° rotation preserves dimensions (still portrait)
         assert result_img.shape == flipped.shape
         assert meta["rotation_applied"] == 180
 
@@ -136,7 +153,7 @@ class TestOrientationProcessImage:
         from lpacleaner.stages.orientation import OrientationStage
 
         stage = OrientationStage()
-        img = make_music_page(width=400, height=300)
+        img = make_music_page(width=300, height=400)
         cfg = Config(input_dir=Path("/tmp"))
 
         _, meta = stage.process_image(img, {}, cfg)
@@ -149,7 +166,7 @@ class TestOrientationProcessImage:
         from lpacleaner.stages.orientation import OrientationStage
 
         stage = OrientationStage()
-        img = make_music_page(width=400, height=300)
+        img = make_music_page(width=300, height=400)
         blurry = cv2.GaussianBlur(img, (31, 31), 10)
         cfg = Config(input_dir=Path("/tmp"))
 
@@ -162,7 +179,7 @@ class TestOrientationProcessImage:
         from lpacleaner.stages.orientation import OrientationStage
 
         stage = OrientationStage()
-        img = make_music_page(width=400, height=300)
+        img = make_music_page(width=300, height=400)
         cfg = Config(input_dir=Path("/tmp"))
 
         _, meta = stage.process_image(img, {}, cfg)
@@ -174,7 +191,7 @@ class TestOrientationProcessImage:
         from lpacleaner.stages.orientation import OrientationStage
 
         stage = OrientationStage()
-        img = make_text_page(width=400, height=300)
+        img = make_text_page(width=300, height=400)
         cfg = Config(input_dir=Path("/tmp"))
 
         result_img, meta = stage.process_image(img, {}, cfg)
@@ -186,7 +203,7 @@ class TestOrientationProcessImage:
         from lpacleaner.stages.orientation import OrientationStage
 
         stage = OrientationStage()
-        img = make_music_page(width=400, height=300)
+        img = make_music_page(width=300, height=400)
         cfg = Config(input_dir=Path("/tmp"))
 
         _, meta = stage.process_image(img, {}, cfg)

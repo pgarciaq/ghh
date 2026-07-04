@@ -76,7 +76,9 @@ def detect_fingers(
     Algorithm:
         1. Convert to YCrCb color space
         2. Skin mask: (133 < Cr < 173) & (77 < Cb < 127)
-        3. Filter: only regions touching image border, area > 1% of page
+        3. Subtract pixels matching the book's ink color (avoids red ink
+           being mistaken for skin)
+        4. Filter: border-touching, area 1-15%, aspect ratio < 4:1
 
     Returns:
         Binary uint8 mask (255 = finger, 0 = not finger).
@@ -86,6 +88,22 @@ def detect_fingers(
     cb = ycrcb[:, :, 2]
 
     skin_mask = ((cr > 133) & (cr < 173) & (cb > 77) & (cb < 127)).astype(np.uint8) * 255
+
+    # Exclude pixels that match the book's ink color -- red/brown ink
+    # falls in the YCrCb skin range and must not be treated as skin.
+    # Ink is highly saturated; skin is more pastel (lower saturation,
+    # higher value). Requiring saturation > 80 avoids masking actual skin.
+    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+    hue = hsv[:, :, 0].astype(np.int16)
+    sat = hsv[:, :, 1]
+    ink_hue = cfg.staff_color_hue
+    ink_range = cfg.staff_color_range
+    hue_diff = np.minimum(
+        np.abs(hue - ink_hue),
+        180 - np.abs(hue - ink_hue),
+    )
+    ink_pixels = (hue_diff < ink_range) & (sat > 120)
+    skin_mask[ink_pixels] = 0
 
     # Morphological cleanup
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
@@ -120,7 +138,21 @@ def detect_fingers(
             continue
 
         touches_border = (x == 0 or y == 0 or x + cw >= w or y + ch >= h)
-        if touches_border:
+        if not touches_border:
+            continue
+
+        # A real finger is concentrated at an image edge. If the centroid
+        # is deep in the image interior, it's parchment or background, not
+        # skin. Require centroid within the outer 20% border zone.
+        cx = x + cw / 2
+        cy = y + ch / 2
+        margin_x = w * 0.2
+        margin_y = h * 0.2
+        in_border_zone = (
+            cx < margin_x or cx > w - margin_x
+            or cy < margin_y or cy > h - margin_y
+        )
+        if in_border_zone:
             result[labels == i] = 255
 
     return result
