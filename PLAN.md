@@ -205,6 +205,15 @@ salt_deposits = "none"
 
 [ocr]
 language = "lat"
+
+[pipeline]
+profile = "full"             # "full", "geometry", "clean", "quick"
+# skip_content_area = false
+# skip_dewarp = false
+# skip_deskew = false
+# skip_enhance = false
+# skip_normalize = false
+# skip_ocr = false
 ```
 
 ---
@@ -996,18 +1005,91 @@ def remove_fingers(img, mask, cfg) -> np.ndarray: ...
 
 ## Config (`config.py`)
 
+### Stage Optionality
+
+Each stage is classified as mandatory, auto-conditional, or optional:
+
+| Stage | Name | Class | Default | Skip condition |
+|-------|------|-------|---------|----------------|
+| 0 | Preprocess | auto | skip | No hotspots or fingers detected by analyze |
+| 1 | Stitch | auto | skip | No partial photo groups detected |
+| 2 | Orientation | **mandatory** | on | Always runs (EXIF at minimum) |
+| 3 | Lens correct | auto | skip | No distortion detected (k1 == k2 == 0) |
+| 4 | Page detect | **mandatory** | on | Always runs (everything downstream needs it) |
+| 5 | Perspective | **mandatory** | on | Always runs (produces rectangle) |
+| 6 | Content area | optional | on | `skip_content_area = true` in book.toml |
+| 7 | Dewarp | optional | on | `skip_dewarp = true` or no staff lines + no AI |
+| 8 | Deskew | optional | on | `skip_deskew = true` or angle < 0.1 degrees |
+| 9 | Enhance | optional | on | `skip_enhance = true` (sub-steps also toggleable) |
+| 10 | Normalize | optional | on | `skip_normalize = true` |
+| 11 | OCR | optional | on | `--no-ocr` flag or `skip_ocr = true` |
+| 12 | PDF assembly | **mandatory** | on | Always runs (it's the output) |
+
+- **Mandatory** stages cannot be skipped (pipeline produces incorrect output without them).
+- **Auto** stages have built-in skip logic: they check a condition and pass through
+  unchanged if not needed. No user configuration required.
+- **Optional** stages default to on but can be disabled per-book or via CLI.
+
+### Profiles (CLI shortcut `--profile NAME`)
+
+Named presets for common workflows. The user can override individual
+settings on top of a profile.
+
+```toml
+# book.toml
+[pipeline]
+profile = "full"   # default
+```
+
+| Profile | Description | Stages enabled | Use case |
+|---------|-------------|----------------|----------|
+| `full` | All stages, all enhancements | 0-12 (auto-skips apply) | Production-quality output |
+| `geometry` | Flatten and crop only, no color processing | 0-5, 12 | Quick structural fix, user handles color elsewhere |
+| `clean` | Geometry + enhancement, no OCR | 0-10, 12 | High-quality PDF without OCR overhead |
+| `quick` | Geometry + light enhance, no dewarp/OCR | 0-5, 9 (denoise+sharpen only), 12 | Fast preview to check framing |
+
+### Sub-step toggles for Stage 9 (enhance)
+
+Each enhancement sub-step has an independent bool flag (already defined
+in stage parameters). The profile or book.toml can disable specific
+sub-steps without disabling the whole stage:
+
+```toml
+[enhance]
+color_cast_correction = true     # R3
+illumination_normalization = true
+shadow_correction = true         # R5
+stain_correction = true          # R6
+halo_reduction = true            # R10
+show_through_removal = true
+white_balance = true
+clahe = true
+salt_correction = true           # R11
+denoise = true
+sharpen = true
+binarize = false                 # only if explicitly requested
+```
+
+### Config dataclass
+
 ```python
 @dataclass
 class Config:
     input_dir: Path
     output_dir: Path
-    stages: list[str] = field(default_factory=lambda:
-        ["0","1","2","3","4","5","6","7","8","9","10","11","12"])
+    profile: str = "full"
     preview: int = 0
     use_gpu: bool = True
     ai_dewarp: bool = False
-    no_ocr: bool = False
     binarize: bool = False
+
+    # Stage skip overrides (optional stages only)
+    skip_content_area: bool = False
+    skip_dewarp: bool = False
+    skip_deskew: bool = False
+    skip_enhance: bool = False
+    skip_normalize: bool = False
+    skip_ocr: bool = False
 
     # Book characteristics (from book.toml via analyze)
     staff_color_hue: int = 5
@@ -1027,7 +1109,7 @@ class Config:
     # ... all stage-specific params from sections above ...
 ```
 
-Loading priority: **CLI args > book.toml > built-in defaults**
+Loading priority: **CLI args > book.toml > profile defaults > built-in defaults**
 
 ---
 
@@ -1036,10 +1118,13 @@ Loading priority: **CLI args > book.toml > built-in defaults**
 ```
 lpacleaner analyze INPUT_DIR [-o OUTPUT_DIR] [--samples 15]
 lpacleaner run INPUT_DIR [OUTPUT_DIR] [--config book.toml]
-lpacleaner run INPUT_DIR --stages 2,3,4,5
-lpacleaner run INPUT_DIR --preview 5
+lpacleaner run INPUT_DIR --profile geometry        # flatten only
+lpacleaner run INPUT_DIR --profile clean           # no OCR
+lpacleaner run INPUT_DIR --profile quick           # fast preview
+lpacleaner run INPUT_DIR --skip-dewarp --skip-ocr  # selective skip
+lpacleaner run INPUT_DIR --stages 2,3,4,5          # explicit stage list (advanced)
+lpacleaner run INPUT_DIR --preview 5               # process only 5 images
 lpacleaner run INPUT_DIR --ai-dewarp
-lpacleaner run INPUT_DIR --no-ocr
 lpacleaner run INPUT_DIR --binarize
 lpacleaner inspect IMAGE_PATH [--config book.toml]
 lpacleaner review OUTPUT_DIR [--stage 09_enhanced]
@@ -1053,9 +1138,17 @@ lpacleaner analyze "/path/to/book/photos" -o "/path/to/book/output"
 
 # 2. Review and optionally edit the generated config
 cat /path/to/book/output/book.toml
+# Edit book.toml to change profile, skip stages, tune parameters
 
-# 3. Process all pages
+# 3. Quick preview to verify geometry (5 sample pages)
+lpacleaner run "/path/to/book/photos" -o "/path/to/book/output" \
+    --profile quick --preview 5
+
+# 4. Full processing
 lpacleaner run "/path/to/book/photos" -o "/path/to/book/output"
+
+# 5. Review flagged pages
+lpacleaner review "/path/to/book/output"
 ```
 
 ---
