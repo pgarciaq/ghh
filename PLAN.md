@@ -1198,7 +1198,7 @@ class Config:
     skip_ocr: bool = False
 
     # Error handling, cleanup, logging
-    on_error: str = "skip"         # "skip" or "stop"
+    on_error: str = "skip"         # "skip" (per-stage classes), "stop", "force"
     cleanup: bool = False          # delete intermediate checkpoints after success
     keep_stages: list[str] = None  # if set, only keep these stage dirs
     verbose: bool = False
@@ -1288,30 +1288,74 @@ Error categories:
    - Logged as WARNING, image flagged in pipeline.json
    - No user intervention needed
 
-2. Hard failure (unrecoverable for this image):
+2. Hard failure (unrecoverable for this image in this stage):
    - Example: corrupt JPEG, cv2 exception, degenerate polygon
    - Caught by the pipeline orchestrator's per-image try/except
    - Logged as ERROR with full traceback
-   - Image is flagged as "failed" in pipeline.json
-   - The image from the last successful stage is carried forward
-     (e.g., if Stage 7 dewarp fails, the Stage 6 content-area image
-     is passed to Stage 8 as-is)
-   - If the image failed in Stage 4 or earlier (no valid crop exists):
-     the image is excluded from the PDF entirely and reported
+   - What happens next depends on the stage's error class (see below)
 
 3. Fatal failure (pipeline cannot continue):
    - Example: output disk full, permissions error, all images fail
    - Pipeline stops with a clear error message
    - pipeline.json records the last successful state for resume
+```
 
-CLI flag:
-  --on-error skip    (default) log, flag, continue with remaining images
-  --on-error stop    halt on first error (for debugging)
+### Per-Stage Error Classes
 
-End-of-run report:
-  "Processed 222/225 images. 2 flagged (soft), 1 failed (hard).
-   Failed: IMG_0080.JPG (Stage 7: polynomial fit ValueError)
-   Flagged: IMG_0045.JPG (low focus), IMG_0231.JPG (non-content)"
+Each stage has a built-in error class that determines what happens
+when a hard failure occurs:
+
+| Stage | Name | Error class | On failure |
+|-------|------|-------------|------------|
+| 0 | Preprocess | skippable | Pass through original image |
+| 1 | Stitch | skippable | Use best single image from group |
+| 2 | Orientation | critical | **Exclude image** from pipeline |
+| 3 | Lens correct | skippable | Pass through uncorrected image |
+| 4 | Page detect | critical | **Exclude image** from pipeline |
+| 5 | Perspective | critical | **Exclude image** from pipeline |
+| 6 | Content area | skippable | Pass through with fixed 5% inset |
+| 7 | Dewarp | skippable | Pass through undistorted image |
+| 8 | Deskew | skippable | Pass through unskewed image |
+| 9 | Enhance | skippable | Pass through unenhanced image |
+| 10 | Normalize | skippable | Pass through unnormalized image |
+| 11 | OCR | skippable | No text layer for this page |
+| 12 | PDF assembly | fatal | Pipeline stops |
+
+- **skippable**: on hard failure, carry forward the image from the last
+  successful stage. The image appears in the PDF but without this
+  stage's processing. Logged as ERROR, flagged for review.
+- **critical**: the image cannot produce a usable result without this
+  stage (no valid crop, no valid rectangle). The image is excluded from
+  all subsequent stages and from the PDF. Logged as ERROR, reported in
+  end-of-run summary.
+- **fatal**: the pipeline cannot produce any output. Stop immediately.
+
+### CLI Override
+
+```
+--on-error skip    (default) use per-stage error classes as above
+--on-error stop    halt on ANY hard failure in ANY stage (for debugging)
+--on-error force   treat all stages as skippable (never exclude images,
+                   carry forward whatever exists -- for maximum output)
+```
+
+Per-stage override in book.toml for edge cases:
+```toml
+[error_overrides]
+stage_5 = "skippable"   # don't exclude images that fail perspective
+stage_7 = "critical"    # I want perfect dewarping or nothing
+```
+
+### End-of-Run Report
+
+```
+Processed 222/225 images.
+  2 flagged (soft fallback): IMG_0045 (low focus), IMG_0013 (no staff lines)
+  1 excluded (critical failure): IMG_0080 (Stage 4: no page quad found)
+  0 failed stages: all skippable failures recovered
+
+Output: /path/to/output/output.pdf (222 pages, 185 MB)
+Log: /path/to/output/lpacleaner.log
 ```
 
 ---
