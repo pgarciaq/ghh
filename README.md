@@ -26,7 +26,7 @@ Optional extras:
 
 ```bash
 pip install ".[ai]"             # OpenVINO + PyTorch for AI dewarping
-pip install ".[historical-ocr]" # Kraken OCR engine for historical scripts
+pip install ".[historical-ocr]" # Kraken OCR engine (requires Python <3.14)
 pip install ".[dev]"            # pytest, ruff, coverage
 ```
 

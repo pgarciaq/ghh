@@ -164,12 +164,11 @@ def detect_staff_lines(img: np.ndarray, cfg: Config) -> list[StaffLine]:
         xs = pts[:, 0].astype(np.float64)
         ys = pts[:, 1].astype(np.float64)
 
-        # Fit polynomial (degree 3 for curved lines, falls back to lower if too few points)
-        degree = min(3, len(pts) - 1)
-        try:
-            coeffs = np.polyfit(xs, ys, degree)
-        except (np.linalg.LinAlgError, ValueError):
-            coeffs = np.array([np.mean(ys)])
+        # Adaptive degree polynomial fitting.
+        # Start with degree-1 (linear, handles skew). Go higher only if
+        # residuals indicate real curvature (spine warping). This avoids
+        # ill-conditioned fits on tightly clustered segments.
+        coeffs = _adaptive_polyfit(xs, ys, max_degree=min(3, len(pts) - 1))
 
         y_center = float(np.mean(ys))
         mean_angle = float(np.median(angles))
@@ -243,6 +242,49 @@ def detect_illustration_regions(img: np.ndarray, cfg: Config) -> np.ndarray:
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+_CURVATURE_THRESHOLD = 1.5  # px RMS residual: below this, lower degree is sufficient
+
+
+def _adaptive_polyfit(xs: np.ndarray, ys: np.ndarray, max_degree: int = 3) -> np.ndarray:
+    """Fit a polynomial with adaptive degree selection.
+
+    Starts at degree-1 (linear). Increases degree only if the RMS residual
+    exceeds the curvature threshold, indicating real page warping rather
+    than noise. This prevents ill-conditioned fits on tightly clustered
+    Hough segments (which trigger numpy RankWarning).
+    """
+    import warnings
+
+    if max_degree < 1 or len(xs) < 2:
+        return np.array([float(np.mean(ys))])
+
+    # numpy 2.0+ moved RankWarning to np.exceptions
+    _rank_warning = getattr(np, "RankWarning", None)
+    if _rank_warning is None:
+        _rank_warning = getattr(np.exceptions, "RankWarning", Warning)
+
+    best_coeffs = np.array([float(np.mean(ys))])
+
+    for deg in range(1, max_degree + 1):
+        if len(xs) <= deg:
+            break
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", _rank_warning)
+            try:
+                coeffs = np.polyfit(xs, ys, deg)
+            except (np.linalg.LinAlgError, ValueError):
+                break
+
+        residuals = ys - np.polyval(coeffs, xs)
+        rms = float(np.sqrt(np.mean(residuals**2)))
+        best_coeffs = coeffs
+
+        if rms < _CURVATURE_THRESHOLD:
+            break
+
+    return best_coeffs
+
 
 def _hsv_ink_mask(img: np.ndarray, cfg: Config) -> np.ndarray:
     """Primary ink detection via HSV thresholds."""

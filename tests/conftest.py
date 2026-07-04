@@ -9,6 +9,11 @@ import numpy as np
 import pytest
 from PIL import Image
 
+# Seed RNG for deterministic test runs. Synthetic image generators use
+# np.random for note positions and noise -- without a fixed seed, tests
+# could become flaky if random placement interferes with detection.
+np.random.seed(42)
+
 
 # ---------------------------------------------------------------------------
 # Synthetic image generators

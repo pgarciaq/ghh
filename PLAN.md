@@ -371,16 +371,27 @@ partials of the INDEX page. IMG_0231 is the rusty metal book cover.
       exclude = ["IMG_0231.JPG"]
       ```
 
-3. Stitching (for each group of 2+ images):
-   a. Use cv2.Stitcher.create(cv2.Stitcher_PANORAMA)
-   b. Feed all images in the group
-   c. Stitcher performs: feature detection, pairwise matching,
-      homography estimation, bundle adjustment, blending
-   d. Output: single composite image at full resolution
-   e. If stitching fails (insufficient overlap, too different angles):
-      fall back to using the single image with largest page area
-   f. Name output after first image in group (e.g., IMG_0232.jpg)
-      and record the group composition in metadata
+3. Stitching (for each group of 2+ images), fallback chain:
+   a. Try cv2.Stitcher.create(cv2.Stitcher_PANORAMA)
+      - Perspective model with bundle adjustment + multi-band blending
+      - Best for angled partial photos (different camera positions)
+      - Can fail on low overlap (<15%) or uniform textures
+   b. If PANORAMA fails: try cv2.Stitcher.create(cv2.Stitcher_SCANS)
+      - Affine model only (no perspective correction)
+      - Better for flat photos taken from directly above the book
+      - Simpler transform = fewer failure modes
+   c. If SCANS fails: manual homography stitching
+      - ORB features + BFMatcher(NORM_HAMMING)
+      - findHomography(RANSAC, ransacReprojThreshold=5.0)
+      - warpPerspective first image into second's coordinate frame
+      - Feathered alpha blend at seam (20px gradient)
+      - Gives full control over thresholds and error reporting
+   d. If all stitching fails: keep single best image
+      - Select the image from the group with the largest detected page area
+      - Flag in pipeline.json for manual review
+      - Log WARNING with match counts and failure reason
+   e. Name output after first image in group (e.g., IMG_0232.jpg)
+      and record the group composition + method used in metadata
 
 4. Duplicate/retake detection (within groups):
    a. If two images in a group have > 90% overlap (nearly identical):
@@ -399,11 +410,31 @@ stitch_inlier_ratio: float = 0.5    # RANSAC inlier ratio
 retake_overlap_threshold: float = 0.9  # above this = retake, not partial
 ```
 
+### Manual Override (`book.toml`)
+
+```toml
+[page_overrides]
+# Explicitly define stitch groups (overrides auto-detection)
+stitch_groups = [
+    ["IMG_0232.JPG", "IMG_0233.JPG", "IMG_0234.JPG"],
+]
+# Exclude specific images entirely (book covers, test shots, etc.)
+exclude = ["IMG_0231.JPG"]
+# Images that look similar but are separate pages (disable auto-grouping)
+no_stitch = ["IMG_0100.JPG", "IMG_0101.JPG"]
+# Include book covers in the PDF (default: false)
+include_covers = false
+```
+
+CLI flags:
+- `--no-stitch`: skip Stage 1 entirely (treat all images as standalone pages)
+
 ### Input/Output
 
 - Input: images from `00_preprocessed/` (or raw JPGs if Stage 0 skipped)
 - Output: grouped/stitched images in `01_stitched/`
-- Metadata: group composition, retakes discarded, non-content images
+- Metadata: group composition, stitch method used, retakes discarded,
+  non-content images, fallback reason (if any)
 - If no groups detected: images are symlinked/copied unchanged
 
 ---
@@ -1017,6 +1048,73 @@ pdf_dpi: int = 300                 # fallback if not in EXIF/metadata
 
 ---
 
+## Stage Contract (`pipeline.py`)
+
+All 13 stages share the same lifecycle via `BaseStage`:
+
+```python
+class BaseStage(ABC):
+    name: str              # "preprocess", "stitch", "orientation", ...
+    number: int            # 0, 1, 2, ...
+    checkpoint_name: str   # "00_preprocessed", "01_stitched", ...
+    error_class: str       # "skippable", "critical", "fatal"
+
+    @abstractmethod
+    def process_image(self, img, metadata, cfg) -> (img, metadata):
+        """Process a single image. Only this varies per stage."""
+
+    def should_skip(self, cfg) -> bool:
+        """Check profile/flags. Default delegates to cfg.should_skip_stage()."""
+
+    def run(self, input_dir, output_dir, cfg, state) -> StageResult:
+        """Orchestration loop: iterate images, resume, error handling,
+        atomic checkpoint writes, metadata sidecars."""
+```
+
+`run()` handles:
+1. List input images (PNG/JPG from previous stage's checkpoint dir)
+2. Check `PipelineState` per-image: skip already-done images (resume)
+3. Call `process_image()` inside try/except
+4. On success: `save_checkpoint()` atomically, `mark_image_done()`
+5. On failure: apply error_class policy:
+   - skippable: copy input image through unchanged, log WARNING
+   - critical: exclude image from pipeline, log ERROR
+   - fatal: stop pipeline immediately
+6. Return `StageResult` with counts (processed, skipped, failed, excluded)
+
+Individual stages **only** implement `process_image()` and optionally
+override `should_skip()`.
+
+### PipelineState (`pipeline.json`)
+
+Persisted state for resume, cache invalidation, and end-of-run reporting:
+
+```json
+{
+  "config_source": "analyzed",
+  "config_hashes": {
+    "stage_2": "a1b2c3...",
+    "stage_7": "d4e5f6..."
+  },
+  "done": {
+    "02_oriented": ["IMG_0001", "IMG_0002", ...],
+    "07_dewarped": ["IMG_0001"]
+  },
+  "results": {
+    "orientation": {"processed": 220, "skipped": 0, "failed": 3, "excluded": 2}
+  }
+}
+```
+
+- `config_source`: `"defaults"` or `"analyzed"` -- tracked so the end-of-run
+  report can warn when analyze hasn't run
+- `config_hashes`: per-stage hash of dependent config fields; if changed,
+  stage + downstream are invalidated
+- `done`: per-stage set of completed image stems; used for per-image resume
+- `results`: per-stage outcome counts for the end-of-run summary
+
+---
+
 ## Shared Utilities
 
 ### line_detect.py
@@ -1269,6 +1367,93 @@ lpacleaner run "/path/to/book/photos" --profile quick --preview 5
 # Review flagged pages after processing:
 lpacleaner review "/path/to/book/photos_output"
 ```
+
+---
+
+## Parameter Tuning and Diagnostics
+
+### How to Detect Parameter Problems
+
+Each stage computes per-image confidence metrics. The pipeline aggregates
+these into stage-level statistics in the end-of-run report:
+
+```
+Stage  7 (dewarp): 210/225 OK, 12 soft fallback (< 2 staff lines), 3 AI fallback
+Stage  9 (enhance): 222/225 OK, 3 flagged (high noise residual)
+```
+
+**Thresholds for review recommendations:**
+- If >20% of pages trigger a soft fallback in any stage, the end-of-run
+  report emits a `REVIEW` recommendation with specific advice:
+  *"Staff line detection had low confidence on 48 pages. Run
+  `lpacleaner inspect IMG_0045.jpg --stage dewarp` to visualize,
+  then consider adjusting staff_color_hue in book.toml."*
+
+### Diagnostic Visualization (`lpacleaner inspect`)
+
+The `inspect` command renders annotated overlays for each stage:
+
+```bash
+lpacleaner inspect IMG_0045.jpg --stage dewarp --config book.toml
+```
+
+Output: an annotated image showing:
+- Ink mask overlay (detected ink pixels in green)
+- Staff lines drawn as colored polylines
+- Polynomial curves fitted to each staff line
+- Foxing spots circled in red (filtered out by R9)
+- Page quad drawn in blue (from Stage 4)
+- Detection parameters used and match counts
+
+For ink detection, `inspect` also suggests parameter corrections:
+*"Current: staff_color_hue=5 range=15. Histogram peak at hue=18.
+Suggest: staff_color_hue=18, staff_color_range=12."*
+
+### Parameter Adjustment Workflow
+
+```
+1. First run with defaults (or after analyze):
+   lpacleaner run "/path/to/book/photos"
+
+2. Review quality:
+   lpacleaner review "/path/to/book/photos_output"
+   → Shows flagged pages, confidence stats, contact sheet
+
+3. Diagnose specific problems:
+   lpacleaner inspect IMG_0045.jpg --stage dewarp
+   → Shows detection overlay with parameter suggestions
+
+4. Adjust configuration:
+   nano "/path/to/book/photos_output/book.toml"
+   → Edit staff_color_hue, thresholds, etc.
+
+5. Re-run (only affected stages reprocess -- cache invalidation):
+   lpacleaner run "/path/to/book/photos"
+   → Only stages dependent on changed params are re-run
+```
+
+This workflow leverages the config-aware cache invalidation: changing
+`staff_color_hue` in book.toml automatically invalidates stages 2, 6,
+7, 8 and all downstream, without reprocessing stages 0-1 or 3-5.
+
+### Adaptive Polynomial Fitting
+
+Staff line polynomial fitting uses adaptive degree selection to avoid
+ill-conditioned fits (numpy RankWarning) on tightly clustered segments:
+
+```
+1. Fit degree-1 (linear) -- handles skew
+2. Compute RMS residual
+3. If residual > 1.5px: try degree-2 -- handles spine curvature
+4. If residual still > 1.5px: try degree-3 -- handles severe warping
+5. Stop at the lowest degree with acceptable residual
+```
+
+Rationale (conservation perspective): Gregorian chant uses 4-line staves
+(tetragram) drawn with a rastrum. On flat parchment these are remarkably
+straight; curvature only appears from spine binding. A degree-1 fit
+suffices for 80%+ of pages. Degree-3 is reserved for severely warped
+pages near the spine.
 
 ---
 
