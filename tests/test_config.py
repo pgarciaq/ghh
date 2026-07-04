@@ -176,3 +176,93 @@ class TestConfigProfiles:
     def test_explicit_skip_overrides_profile(self, tmp_path):
         cfg = Config(input_dir=tmp_path, profile="full", skip_dewarp=True)
         assert cfg.should_skip_stage("dewarp") is True
+
+
+class TestConfigLayoutFields:
+    """Tests for [layout] section fields in Config."""
+
+    def test_default_layout_values(self, tmp_path):
+        cfg = Config(input_dir=tmp_path)
+        assert cfg.border_ink_matches_staff is True
+        assert cfg.has_illustrations is False
+        assert cfg.illustration_frequency == "none"
+        assert cfg.median_aspect_ratio == 0.0
+
+    def test_loads_layout_from_toml(self, tmp_path):
+        toml_path = tmp_path / "book.toml"
+        toml_path.write_text("""\
+[layout]
+has_border_frame = false
+border_ink_matches_staff = false
+page_number_position = "bottom"
+expected_staff_lines_per_page = 20
+has_illustrations = true
+illustration_frequency = "frequent"
+median_aspect_ratio = 1.5
+""")
+        cfg = Config.from_toml(input_dir=tmp_path, toml_path=toml_path)
+        assert cfg.has_border_frame is False
+        assert cfg.border_ink_matches_staff is False
+        assert cfg.page_number_position == "bottom"
+        assert cfg.expected_staff_lines == 20
+        assert cfg.has_illustrations is True
+        assert cfg.illustration_frequency == "frequent"
+        assert cfg.median_aspect_ratio == 1.5
+
+
+class TestConfigConditionFields:
+    """Tests for [condition] section fields in Config."""
+
+    def test_default_condition_values(self, tmp_path):
+        cfg = Config(input_dir=tmp_path)
+        assert cfg.stain_severity == "none"
+        assert cfg.ink_fading == "none"
+        assert cfg.show_through_severity == "none"
+        assert cfg.foxing_severity == "none"
+        assert cfg.iron_gall_halos == "none"
+        assert cfg.salt_deposits == "none"
+
+    def test_loads_condition_from_toml(self, tmp_path):
+        toml_path = tmp_path / "book.toml"
+        toml_path.write_text("""\
+[condition]
+stain_severity = "moderate"
+ink_fading = "slight"
+show_through_severity = "mild"
+foxing_severity = "severe"
+iron_gall_halos = "moderate"
+salt_deposits = "mild"
+""")
+        cfg = Config.from_toml(input_dir=tmp_path, toml_path=toml_path)
+        assert cfg.stain_severity == "moderate"
+        assert cfg.ink_fading == "slight"
+        assert cfg.show_through_severity == "mild"
+        assert cfg.foxing_severity == "severe"
+        assert cfg.iron_gall_halos == "moderate"
+        assert cfg.salt_deposits == "mild"
+
+
+class TestConfigPhotographyExtended:
+    """Tests for extended [photography] fields in Config."""
+
+    def test_default_extended_photography_values(self, tmp_path):
+        cfg = Config(input_dir=tmp_path)
+        assert cfg.color_cast_detected == "none"
+        assert cfg.background_contrast == "dark_on_light"
+        assert cfg.shadow_severity == "none"
+        assert cfg.coarse_rotation_offset == 0
+
+    def test_loads_extended_photography_from_toml(self, tmp_path):
+        toml_path = tmp_path / "book.toml"
+        toml_path.write_text("""\
+[photography]
+color_cast_detected = "slight_warm"
+background_contrast = "light_on_dark"
+shadow_severity = "moderate"
+coarse_rotation_offset = 90
+""")
+        cfg = Config.from_toml(input_dir=tmp_path, toml_path=toml_path)
+        assert cfg.color_cast_detected == "slight_warm"
+        assert cfg.background_contrast == "light_on_dark"
+        assert cfg.shadow_severity == "moderate"
+        assert cfg.coarse_rotation_offset == 90

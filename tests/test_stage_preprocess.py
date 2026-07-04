@@ -91,6 +91,7 @@ class TestPreprocessStageContract:
 # TestPreprocessStage: process_image behavior
 # ---------------------------------------------------------------------------
 
+@pytest.mark.slow
 class TestPreprocessProcessImage:
     """Test process_image() logic for various input scenarios."""
 
@@ -164,6 +165,7 @@ class TestPreprocessProcessImage:
 # TestPreprocessStage: integration with run() orchestration
 # ---------------------------------------------------------------------------
 
+@pytest.mark.slow
 class TestPreprocessStageRun:
     """Test the full run() lifecycle via BaseStage.run()."""
 

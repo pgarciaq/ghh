@@ -41,7 +41,11 @@ physical condition (coastal preservation, humidity damage, aging).
 | -- | pipeline.py (BaseStage, PipelineState) | **Done** | 16 tests | `d944406` |
 | 7 | Stage 0 (preprocess) | **Done** | 18 tests | `9de99a7` |
 | 8 | Stage 1 (stitch) | **Done** | 23 tests | `3632cdb` |
-| 9 | stages/analyze.py | Pending | | |
+| -- | utils/page_find.py | **Done** | 9 tests | |
+| -- | utils/stats.py | **Done** | 14 tests | |
+| -- | Config: layout/condition fields | **Done** | 6 tests | |
+| -- | Test tiers (@pytest.mark.slow) | **Done** | 16 tagged | |
+| 9 | stages/analyze.py | **Done** | 18 tests | |
 | 10 | Stage 2 (orientation) | Pending | | |
 | 11 | Stage 3 (lens correct) | Pending | | |
 | 12 | Stage 4 (page detect) | Pending | | |
@@ -57,7 +61,7 @@ physical condition (coastal preservation, humidity damage, aging).
 | 22 | CLI polish | Pending | | |
 | 23 | Integration tests | Pending | | |
 
-**Totals:** 152 tests, all green, 85% coverage (as of `45ea8c0`).
+**Totals:** 199 tests, all green (183 fast + 16 slow).
 
 ---
 
@@ -126,6 +130,8 @@ lpacleaner/
       image_io.py           # EXIF-aware load, save, checkpoint dir management
       accel.py              # GPU/OpenCL detection, UMat wrappers, OpenVINO init
       preprocess.py         # Flash hotspot removal (R1), finger detection (R8)
+      page_find.py          # Simplified page quad detection (Otsu + largest contour)
+      stats.py              # Median-based statistics, MAD outlier rejection
 ```
 
 ## Checkpoint Directory Layout
@@ -209,8 +215,22 @@ book characteristics. Runs automatically as part of `lpacleaner run` if no
 ### Usage
 
 ```
-lpacleaner analyze INPUT_DIR [--output-dir OUTPUT_DIR] [--samples 15]
+lpacleaner analyze INPUT_DIR [--output-dir OUTPUT_DIR] [--samples N]
 ```
+
+`--samples N` overrides the adaptive default. When omitted, analyze samples
+`max(10, min(30, total_images // 10))` images:
+
+| Book size | Calculation | Samples |
+|-----------|-------------|---------|
+| 50 images | 50/10 = 5 → min clamp | **10** |
+| 100 images | 100/10 = 10 | **10** |
+| 225 images (LPA-1) | 225/10 = 22 | **22** |
+| 400 images | 400/10 = 40 → max clamp | **30** |
+| 800 images | 800/10 = 80 → max clamp | **30** |
+
+Minimum 10 ensures median-based statistics are stable (after outlier rejection
+we retain ≥7 samples). Maximum 30 avoids diminishing returns on large books.
 
 ### Robustness on Raw Images
 
@@ -227,32 +247,76 @@ large non-page areas (table surfaces). To produce reliable results:
 - **Sample selection**: After partial photo and cover detection (steps 1-2),
   analyze only uses standalone page images. It skips covers, spine shots,
   and partial photos (which have distorted page geometry).
-- **Page cropping before measurement**: Steps 3-7 crop to the detected page
-  quad before measuring ink color, layout, etc. This excludes table
-  surfaces, fingers, and adjacent-page bleed from the measurements.
+- **Simplified page quad detection**: Analyze uses a lightweight Otsu +
+  largest-contour page finder (not the full Stage 4 fallback chain). This
+  is sufficient for calibration purposes where sub-pixel accuracy is not
+  needed. The simplified detector: (a) converts to grayscale, (b) applies
+  Otsu threshold, (c) finds the largest contour, (d) approximates it with
+  `cv2.approxPolyDP`, (e) returns 4 corners if the approximation is a
+  quadrilateral, otherwise falls back to the central 80% of the image.
+- **Coarse orientation before measurement**: Before ink and layout analysis,
+  analyze determines the correct coarse orientation of sampled images (see
+  "Coarse Orientation Detection" below). This ensures staff line detection
+  works regardless of how the photos were taken.
 - **Graceful degradation**: If fewer than 3 valid samples remain after
   filtering, analyze emits a WARNING and falls back to built-in defaults,
   setting `config_source = "defaults"` in pipeline.json.
 
+### Coarse Orientation Detection
+
+EXIF rotation handles most orientation issues, but some cameras write
+incorrect or missing EXIF tags. For robustness, analyze performs a
+coarse orientation check on a small subset (3-5 images):
+
+```
+1. Select 3-5 evenly-spaced sample images
+2. For each image, try 4 cardinal rotations (0°, 90°, 180°, 270°):
+   a. Downscale to 1000px wide
+   b. Run detect_ink_mask() + HoughLinesP (±15° horizontal tolerance)
+   c. Count near-horizontal staff line segments
+3. For each image, the rotation with the most horizontal lines wins
+4. Take the most common winning rotation across all subset images
+5. If the winning rotation ≠ EXIF rotation, record a correction offset
+```
+
+This costs ~200ms per image (4 rotations × 50ms each on 1000px images).
+Total cost for 5 images: ~1 second.
+
+The ±15° tolerance in HoughLinesP handles real-world camera wobble.
+Even a photo taken at 87° (3° off from 90°) has its staff lines brought
+to ~3° from horizontal by the 90° rotation -- well within the detection
+window. Fine-angle correction (the remaining 2-3°) is Stage 8's job.
+
 ### Algorithm
 
 ```
-1. Load N evenly-spaced images from the input directory
+1. List all images in input directory, sorted by name
 
-2. Partial photo detection (lightweight, before sampling):
-   a. Run ORB feature matching on ALL consecutive image pairs
+2. Adaptive sampling: select N = max(10, min(30, total // 10)) images,
+   evenly spaced across the sorted file list
+
+3. Partial photo detection (lightweight, on ALL consecutive pairs):
+   a. Run ORB feature matching on consecutive image pairs
       (same algorithm as Stage 1 stitch grouping, but detection only)
    b. Identify groups of partial photos and retakes
-   c. Exclude partial photos from sampling: only sample standalone
+   c. Exclude partial photos from sample set: only keep standalone
       images or the first image of each group (as a representative)
    d. Record detected groups in book.toml for Stage 1 to use
 
-3. For each sampled image:
-   a. Apply EXIF rotation
-   b. Detect page quad (try all page_detect methods, pick best)
-   c. Crop to page
+4. Filter non-content images (covers, spine shots) from sample set
+   using is_non_content() from stitch utils
 
-4. Ink color discovery:
+5. Coarse orientation detection (on 3-5 images from sample set):
+   a. Try 4 cardinal rotations, count staff line segments
+   b. Determine most common best rotation → coarse_rotation_offset
+   c. If EXIF disagrees with detected orientation, record correction
+
+6. For each sampled image:
+   a. Apply EXIF rotation + coarse_rotation_offset (if any)
+   b. Detect page quad (simplified: Otsu + largest contour)
+   c. Crop to page quad (fallback: central 80% of image)
+
+7. Ink color discovery:
    a. Convert cropped pages to HSV
    b. Mask out near-white (background, value > 200) and
       near-black (text/notes, value < 60)
@@ -260,14 +324,14 @@ large non-page areas (table surfaces). To produce reliable results:
    d. Dominant hue peak = staff line ink color
    e. Compute optimal HSV range and channel-difference thresholds
 
-5. Layout analysis:
+8. Layout analysis:
    a. Detect border frame presence (consistent linear structures at page edges)
    b. Count staff lines per page (estimate expected range)
    c. Detect page number positions (top-right, top-left, bottom)
    d. Detect illustration presence (multi-colored regions)
    e. Compute median page aspect ratio
 
-6. Photography condition analysis:
+9. Photography condition analysis:
    a. Flash: check for clipped-white regions (> 250 in all channels)
    b. Color cast: compare per-channel means (gray-world deviation)
    c. Background contrast: which Otsu method works (normal vs inverted)
@@ -275,24 +339,24 @@ large non-page areas (table surfaces). To produce reliable results:
    e. Lens distortion: measure edge curvature on page quads
    f. Fingers: check for skin-colored regions at image borders
 
-7. Physical condition analysis:
-   a. Foxing: count small reddish-brown blobs matching ink color but
-      with low aspect ratio (round, not linear)
-   b. Iron gall halos: measure brown halo width around text
-   c. Stains: detect large-area brightness deviations
-   d. Salt deposits: detect bright textured (not clipped) patches
-   e. Show-through: detect faint reverse-page ink bleed
-   f. Ink fading: compare staff ink saturation to expected range
+10. Physical condition analysis:
+    a. Foxing: count small reddish-brown blobs matching ink color but
+       with low aspect ratio (round, not linear)
+    b. Iron gall halos: measure brown halo width around text
+    c. Stains: detect large-area brightness deviations
+    d. Salt deposits: detect bright textured (not clipped) patches
+    e. Show-through: detect faint reverse-page ink bleed
+    f. Ink fading: compare staff ink saturation to expected range
 
-8. Write book.toml
+11. Write book.toml
 ```
 
 ### Output: `book.toml`
 
 ```toml
 [book]
-name = "LPA-1 San Nicolas"
-type = "music"
+name = "LPA-1 San Nicolas"       # informational (not consumed by stages)
+type = "music"                    # informational
 
 [ink]
 staff_color_hue = 5              # HSV hue (0-180), ~red
@@ -309,23 +373,25 @@ page_number_position = "top-right"
 expected_staff_lines_per_page = 16
 has_illustrations = true
 illustration_frequency = "rare"  # "none", "rare", "frequent"
+median_aspect_ratio = 1.33       # width/height of detected page quads
 
 [photography]
 has_flash_hotspots = false
-color_cast_detected = "slight_warm"
-background_contrast = "dark_on_light"
-shadow_severity = "none"
+color_cast_detected = "slight_warm"  # "none", "slight_warm", "slight_cool", "strong_warm", "strong_cool"
+background_contrast = "dark_on_light"  # "dark_on_light", "light_on_dark"
+shadow_severity = "none"         # "none", "mild", "moderate", "severe"
 lens_distortion_k1 = 0.0
 lens_distortion_k2 = 0.0
 fingers_detected = false
+coarse_rotation_offset = 0       # 0, 90, 180, 270 -- correction beyond EXIF
 
 [condition]
-stain_severity = "mild"
-ink_fading = "slight"
-show_through_severity = "moderate"
-foxing_severity = "mild"
-iron_gall_halos = "slight"
-salt_deposits = "none"
+stain_severity = "mild"          # "none", "mild", "moderate", "severe"
+ink_fading = "slight"            # "none", "slight", "moderate", "severe"
+show_through_severity = "moderate"  # "none", "mild", "moderate", "severe"
+foxing_severity = "mild"         # "none", "mild", "moderate", "severe"
+iron_gall_halos = "slight"       # "none", "slight", "moderate", "severe"
+salt_deposits = "none"           # "none", "mild", "moderate", "severe"
 
 [ocr]
 language = "lat"
@@ -339,6 +405,26 @@ profile = "full"             # "full", "geometry", "clean", "quick"
 # skip_normalize = false
 # skip_ocr = false
 ```
+
+### Config Field Alignment
+
+All `book.toml` sections except `[book]` are loaded by `Config.from_toml()`:
+
+| TOML section | Config consumption | Purpose |
+|---|---|---|
+| `[book]` | **Informational only** -- not loaded into Config | Human-readable book identity |
+| `[ink]` | Loaded → ink detection thresholds | Staff line color calibration |
+| `[layout]` | Loaded → layout-aware stages | Border detection, staff count, page numbers |
+| `[photography]` | Loaded → conditional stage behavior | Flash, fingers, lens, orientation correction |
+| `[condition]` | Loaded → enhance aggressiveness | Severity drives sub-step intensity |
+| `[ocr]` | Loaded → OCR configuration | Language, engine |
+| `[pipeline]` | Loaded → profile and skip flags | Stage execution control |
+| `[stitch]` | Loaded → stitch thresholds | Feature matching, overlap, grouping |
+| `[page_overrides]` | Loaded → manual stitch control | Explicit grouping, exclusion |
+
+Condition severities influence enhancement aggressiveness: `"none"` disables
+the sub-step, `"mild"` uses conservative parameters, `"moderate"` and
+`"severe"` use progressively more aggressive correction.
 
 ---
 
@@ -1936,6 +2022,74 @@ OMR-friendly:
 
 ### Planned OMR Architecture (Future Iteration)
 
+Two approaches, in order of feasibility:
+
+#### Approach A: End-to-End Vision-Encoder-Decoder (Recommended)
+
+Inspired by [Transcoda](https://huggingface.co/btrkeks/transcoda-59M-zeroshot-v1),
+a 59M-parameter model that does end-to-end OMR for modern notation using a
+ConvNeXt-V2 encoder + Transformer decoder. Transcoda itself won't work for
+Gregorian chant (trained on 5-line modern staves, outputs `**kern`), but the
+same architecture can be trained from scratch on square notation:
+
+```
+Encoder: ConvNeXt-V2 or similar (pretrained ImageNet, fine-tuned)
+  ↓ patch grid
+Projector: MLP (encoder dim → decoder dim)
+  ↓
+Decoder: Transformer (8 layers, BPE vocabulary over GABC tokens)
+  ↓
+Output: GABC notation (Gregorio format)
+```
+
+**Why GABC, not MEI or MusicXML**: GABC is the native notation format for
+Gregorian chant, used by the [Gregorio project](https://gregorio-project.github.io/).
+It's compact, human-readable, and directly renders via LaTeX. MEI is more
+general but overkill for square notation.
+
+**Training data strategy -- synthetic generation, not manual transcription:**
+
+The 225 LPA-1 photographs (and photos from other books) are NOT suitable for
+training. Training a vision-encoder-decoder requires thousands of (image, GABC)
+pairs. Manual transcription of 225 pages would take weeks and still be far too
+few (Transcoda used 310,000+ synthetic pairs). Instead:
+
+1. **Source GABC files**: [GregoBase](https://gregobase.selapa.net/) contains
+   ~10,000 chant transcriptions in GABC format, contributed by scholars.
+   Additional sources: Gregorio project samples, GABC files from chant
+   communities.
+2. **Render to images**: Use [Gregorio](https://gregorio-project.github.io/)
+   (a TeX package) to typeset each GABC file into a clean score image. This
+   produces pixel-perfect (image, GABC) pairs automatically.
+3. **Domain augmentation**: Apply transformations to make clean renders
+   resemble real photographs:
+   - Parchment/paper texture overlay
+   - Red staff ink with variable hue/saturation (matching real books)
+   - Ink bleeding, fading, and thickness variation
+   - Foxing spots, water stains, iron gall corrosion simulation
+   - Camera perspective distortion, barrel distortion
+   - Uneven lighting, shadows, flash hotspots
+   - Background (dark table surface)
+   - JPEG compression artifacts
+   These augmentations bridge the domain gap between synthetic renders and
+   real photographs.
+4. **Validation/test set from real photos**: Manually transcribe 20-30 pages
+   from each real book into GABC to measure real-world performance (domain
+   gap). The real photos are too precious to train on -- they're the ground
+   truth benchmark.
+
+**Model sizing**: A compact model (50-100M parameters) should suffice.
+Square notation has a much smaller symbol vocabulary than modern notation
+(~30 neume types vs hundreds of symbols), so the decoder can be smaller.
+
+**Estimated effort**: Significant -- data pipeline (GABC → rendered images),
+augmentation engine, model training, grammar-constrained decoding for valid
+GABC output. This is a standalone research/engineering project.
+
+#### Approach B: Classical Pipeline (Segmentation + Classification)
+
+Fallback if end-to-end proves too complex:
+
 ```
 Input: dewarped images from Stage 7 + staff line metadata
 
@@ -1947,14 +2101,21 @@ Input: dewarped images from Stage 7 + staff line metadata
    notation (square notation: neumes, punctum, virga, clivis, etc.)
 4. Sequence assembly: left-to-right, top-to-bottom reading order
    using staff line positions as vertical reference
-5. Output: MEI (Music Encoding Initiative) XML -- the standard for
-   encoding historical Western music notation
-
-Potential tools/models:
-- Rodan (historically-aware OMR framework)
-- OMMR4all (end-to-end OMR for historical manuscripts)
-- Custom model trained on the specific Gregorian notation style
+5. Output: GABC notation
 ```
+
+This is more brittle (errors cascade between stages) but easier to debug
+and doesn't require as much training data.
+
+#### Existing Tools (Limited Applicability)
+
+- **Transcoda** (btrkeks/transcoda-59M-zeroshot-v1): Modern notation only,
+  outputs `**kern`. Architecture is reusable, weights are not.
+- **OMMR4all**: End-to-end OMR for historical manuscripts, but focused on
+  mensural notation (white notation), not square notation.
+- **Rodan/Gamera**: Legacy framework, not actively maintained.
+- **Kraken**: Already in our pipeline for text OCR. Could potentially be
+  trained for neume recognition but not designed for music.
 
 ### OMR Impact on Current Design
 
@@ -1965,7 +2126,9 @@ architecture is already compatible:
   (staff positions)
 - It runs after the image pipeline, optionally in parallel with
   enhancement/OCR
-- It produces its own output files (MEI XML) alongside the PDF
+- It produces its own output files (GABC) alongside the PDF
+- The augmentation engine for synthetic training data could reuse
+  lpacleaner's own image processing stages (enhance, normalize) in reverse
 
 ---
 
@@ -2416,6 +2579,24 @@ def blur_image(img, kernel_size=15): ...
 Small images (800x600) for fast tests. A few 4000x3000 fixtures
 (marked `@pytest.mark.slow`) for realistic integration tests.
 
+### Test Tiers
+
+Two tiers for developer workflow:
+
+| Tier | Command | When to run | Target time |
+|------|---------|-------------|-------------|
+| **Fast** | `pytest -m "not slow"` | Every edit, during TDD | <15 seconds |
+| **Full** | `pytest` | Before commit, in CI | <5 minutes |
+
+Tests marked `@pytest.mark.slow` are those that:
+- Process full-resolution (4000x3000) synthetic images
+- Run multi-image stage integration tests (e.g., StitchStage with grouping)
+- Perform batch operations (e.g., analyze over multiple samples)
+- Individually take >2 seconds
+
+Fast tests use small (800x600) images and test single-function behavior.
+The `slow` marker is registered in `pyproject.toml`.
+
 ### Test Levels
 
 #### 1. Unit Tests (per function, fast, <1s each)
@@ -2588,7 +2769,8 @@ For each item in the Implementation Order:
 ### Running Tests
 
 ```bash
-pytest                           # all unit + stage tests
+pytest -m "not slow"             # fast tests only (~15s) -- use during TDD
+pytest                           # full suite (all tiers)
 pytest -x                        # stop at first failure
 pytest --cov=lpacleaner          # with coverage report
 pytest -m slow                   # only slow tests (4000x3000 images)
@@ -2612,7 +2794,7 @@ on synthetic images:
 6. ~~**config.py**~~: ✅ Config dataclass with all params, TOML loading, profile resolution, stitch params
 7. ~~**Stage 0** (preprocess)~~: ✅ wire preprocess.py into BaseStage (18 tests)
 8. ~~**Stage 1** (stitch)~~: ✅ grouping, stitching fallback chain, retake dedup, non-content detection (23 tests)
-9. **stages/analyze.py**: auto-detect book characteristics, generate book.toml, median-based robustness
+9. **stages/analyze.py**: auto-detect book characteristics, generate book.toml, adaptive sampling, coarse orientation, simplified quad detection, median-based robustness
 10. **Stage 2** (orientation): EXIF + ink line angle + 180deg disambiguation + focus QA + graceful degradation
 11. **Real image smoke test**: run Stages 0-1-2 on LPA-1 samples, visual inspection
 12. **Stage 3** (lens correct, optional): radial distortion correction (R7) -- simple

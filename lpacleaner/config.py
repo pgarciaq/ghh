@@ -68,8 +68,12 @@ class Config:
     channel_diff_rg: int = 30
     channel_diff_rb: int = 30
     has_border_frame: bool = True
+    border_ink_matches_staff: bool = True
     page_number_position: str = "top-right"
     expected_staff_lines: int = 16
+    has_illustrations: bool = False
+    illustration_frequency: str = "none"
+    median_aspect_ratio: float = 0.0
 
     # Stitch parameters (Stage 1)
     stitch_min_matches: int = 30
@@ -89,6 +93,18 @@ class Config:
     fingers_detected: bool = False
     lens_distortion_k1: float = 0.0
     lens_distortion_k2: float = 0.0
+    color_cast_detected: str = "none"
+    background_contrast: str = "dark_on_light"
+    shadow_severity: str = "none"
+    coarse_rotation_offset: int = 0
+
+    # Physical condition (severity: "none", "mild"/"slight", "moderate", "severe")
+    stain_severity: str = "none"
+    ink_fading: str = "none"
+    show_through_severity: str = "none"
+    foxing_severity: str = "none"
+    iron_gall_halos: str = "none"
+    salt_deposits: str = "none"
 
     # OCR
     ocr_engine: str = "tesseract"
@@ -160,6 +176,16 @@ class Config:
         _map_if_present(kwargs, ink, "channel_diff_rg", "channel_diff_rg")
         _map_if_present(kwargs, ink, "channel_diff_rb", "channel_diff_rb")
 
+        # [layout] section
+        layout = toml_data.get("layout", {})
+        _map_if_present(kwargs, layout, "has_border_frame", "has_border_frame")
+        _map_if_present(kwargs, layout, "border_ink_matches_staff", "border_ink_matches_staff")
+        _map_if_present(kwargs, layout, "page_number_position", "page_number_position")
+        _map_if_present(kwargs, layout, "expected_staff_lines_per_page", "expected_staff_lines")
+        _map_if_present(kwargs, layout, "has_illustrations", "has_illustrations")
+        _map_if_present(kwargs, layout, "illustration_frequency", "illustration_frequency")
+        _map_if_present(kwargs, layout, "median_aspect_ratio", "median_aspect_ratio")
+
         # [pipeline] section
         pipeline = toml_data.get("pipeline", {})
         _map_if_present(kwargs, pipeline, "profile", "profile")
@@ -214,6 +240,19 @@ class Config:
         _map_if_present(kwargs, photography, "fingers_detected", "fingers_detected")
         _map_if_present(kwargs, photography, "lens_distortion_k1", "lens_distortion_k1")
         _map_if_present(kwargs, photography, "lens_distortion_k2", "lens_distortion_k2")
+        _map_if_present(kwargs, photography, "color_cast_detected", "color_cast_detected")
+        _map_if_present(kwargs, photography, "background_contrast", "background_contrast")
+        _map_if_present(kwargs, photography, "shadow_severity", "shadow_severity")
+        _map_if_present(kwargs, photography, "coarse_rotation_offset", "coarse_rotation_offset")
+
+        # [condition] section
+        condition = toml_data.get("condition", {})
+        _map_if_present(kwargs, condition, "stain_severity", "stain_severity")
+        _map_if_present(kwargs, condition, "ink_fading", "ink_fading")
+        _map_if_present(kwargs, condition, "show_through_severity", "show_through_severity")
+        _map_if_present(kwargs, condition, "foxing_severity", "foxing_severity")
+        _map_if_present(kwargs, condition, "iron_gall_halos", "iron_gall_halos")
+        _map_if_present(kwargs, condition, "salt_deposits", "salt_deposits")
 
         # CLI overrides take top priority
         if overrides:

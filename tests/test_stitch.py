@@ -364,6 +364,7 @@ class TestStitchStageContract:
         assert issubclass(StitchStage, BaseStage)
 
 
+@pytest.mark.slow
 class TestStitchStageRun:
     """Integration tests for StitchStage.run()."""
 
