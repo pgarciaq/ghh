@@ -1476,6 +1476,163 @@ This is also written to `pipeline.json` for programmatic access.
 
 ---
 
+## AI/ML Strategy
+
+### Current Approach: Classical Computer Vision
+
+The pipeline is deliberately built on classical computer vision, not
+deep learning. Every stage uses deterministic, interpretable algorithms:
+
+| Technique | Used in | Purpose |
+|-----------|---------|---------|
+| Otsu / adaptive thresholding | Stage 4 | Page-background separation |
+| Canny edge detection | Stage 4 (fallback) | Edge-based page detection |
+| GrabCut | Stage 4 (fallback) | Foreground segmentation |
+| Hough Line Transform | Stages 2, 6, 7, 8 | Staff line and border detection |
+| HSV color filtering | line_detect.py | Ink color isolation |
+| Morphological operations | Multiple stages | Mask cleaning, gap bridging |
+| Polynomial fitting | Stage 7 | Staff line curvature modeling |
+| Perspective transform | Stage 5 | Geometric correction |
+| cv2.remap | Stage 7 | Dewarping via displacement mesh |
+| CLAHE | Stage 9 | Adaptive contrast enhancement |
+| ORB feature matching | Stage 1 | Stitch group detection |
+| cv2.Stitcher | Stage 1 | Panoramic stitching (ORB-based, not neural) |
+| cv2.inpaint (Telea) | Stage 0 | PDE-based inpainting for hotspots/fingers |
+| Laplacian variance | Stage 2 | Focus quality metric |
+
+### Why Classical First
+
+1. **Deterministic**: Same input always produces same output. No model
+   randomness, no batch normalization artifacts, no training data bias.
+2. **Debuggable**: Every parameter is interpretable. When dewarp produces
+   a bad result, you can inspect the polynomial coefficients, the staff
+   line positions, the Hough thresholds. Neural models are opaque.
+3. **Fast**: No model loading, no GPU memory allocation for inference,
+   no batch size tuning. A Hough transform on a 4000x3000 image takes
+   ~10ms. A neural segmentation model takes ~200ms+ after loading.
+4. **No training data required**: These books are rare. There's no
+   labeled dataset of "correct dewarping for 300-year-old Gregorian
+   chant." Classical methods work from first principles.
+5. **No model distribution**: No 500MB model files to download, no
+   version compatibility issues, no ONNX/OpenVINO conversion steps.
+6. **Runs everywhere**: CPU-only fallback works. No GPU required (GPU
+   accelerates but isn't mandatory).
+
+### Where AI/ML Is Used (Optional)
+
+Only one place, only when explicitly requested:
+
+- **Stage 7 dewarp, AI path** (`--ai-dewarp`): DocTr GeoTr model,
+  converted to OpenVINO IR (FP16), runs on Intel Arc GPU. Used as
+  fallback when classical dewarping finds fewer than 2 staff lines
+  (text-only pages, decorative pages). Requires `openvino` and
+  `torch` packages (optional dependency group `ai`).
+
+### Where AI/ML Could Add Value (Not Currently Implemented)
+
+These are potential future enhancements, ordered by impact:
+
+1. **Kraken OCR** (Stage 11, already in plan as optional):
+   Neural OCR for historical scripts. Much better than Tesseract on
+   300-year-old handwritten Latin with abbreviations and ligatures.
+   Available via `--ocr-engine kraken` and the `historical-ocr`
+   dependency group. This is the highest-value ML addition.
+
+2. **Neural binarization** (Stage 9):
+   Models like Robin or DE-GAN produce cleaner binarization on
+   degraded documents than adaptive thresholding. Useful if
+   binarized output is needed for OMR or archival purposes.
+   Low priority since most users want color output.
+
+3. **Page segmentation** (Stage 4):
+   A U-Net or similar model could segment page vs. background more
+   reliably than Otsu/Canny on difficult backgrounds (textured
+   tablecloths, cluttered surfaces). Not needed for the current
+   books (dark table background with good contrast), but could help
+   with varied photography conditions across 15+ books.
+
+4. **Layout analysis**:
+   Neural layout detection (staff regions, text regions, illustrations,
+   marginalia) could replace the current heuristic approach (ink mask
+   + Hough lines + aspect ratio filtering). Would primarily benefit
+   OMR (see below) by providing precise region boundaries.
+
+---
+
+## Future: Optical Music Recognition (OMR)
+
+OMR is a planned future capability: converting the cleaned, dewarped
+music page images into machine-readable music notation (MEI, MusicXML,
+or similar).
+
+### Why It's Not in v1
+
+OMR requires:
+1. Very clean, well-dewarped, properly oriented input images
+2. Accurate staff line detection and removal
+3. Symbol segmentation and classification (neural network)
+4. Musical context understanding (rhythm, key, clef awareness)
+
+Items 1-2 are exactly what lpacleaner produces. Building the image
+pipeline first gives OMR the best possible input. Attempting OMR on
+raw, skewed, warped, poorly-lit photos would produce poor results.
+
+### How lpacleaner Prepares for OMR
+
+Several design decisions in the current pipeline are intentionally
+OMR-friendly:
+
+1. **Lossless checkpoints (PNG)**: OMR needs clean pixel data, not
+   JPEG-compressed artifacts around note heads.
+2. **Staff line detection metadata**: Stage 7 stores staff positions,
+   polynomial coefficients, and cluster assignments. OMR needs exactly
+   this data to locate staves.
+3. **Page type classification**: Stage 4 classifies pages as "music",
+   "text", "decorative", etc. OMR only processes "music" pages.
+4. **Dewarped staff lines**: After Stage 7, staff lines are straight
+   and horizontal -- the ideal input for OMR symbol detection.
+5. **Notation masking** (Stage 11): The OCR stage already masks staff
+   regions. The inverse mask (notation regions only) is exactly what
+   OMR needs.
+6. **Ink mask / geometric filtering**: The ink detection pipeline
+   (line_detect.py) separates staff lines from notes, text, and
+   damage. This segmentation is a prerequisite for OMR.
+
+### Planned OMR Architecture (Future Iteration)
+
+```
+Input: dewarped images from Stage 7 + staff line metadata
+
+1. Staff line removal: use Stage 7 staff positions to precisely
+   remove staff lines, leaving only notes, clefs, accidentals, text
+2. Symbol segmentation: connected components or neural detection
+   (YOLO-based or similar) to isolate individual symbols
+3. Symbol classification: CNN classifier trained on Gregorian chant
+   notation (square notation: neumes, punctum, virga, clivis, etc.)
+4. Sequence assembly: left-to-right, top-to-bottom reading order
+   using staff line positions as vertical reference
+5. Output: MEI (Music Encoding Initiative) XML -- the standard for
+   encoding historical Western music notation
+
+Potential tools/models:
+- Rodan (historically-aware OMR framework)
+- OMMR4all (end-to-end OMR for historical manuscripts)
+- Custom model trained on the specific Gregorian notation style
+```
+
+### OMR Impact on Current Design
+
+No changes needed to the current pipeline for OMR readiness. The
+architecture is already compatible:
+- OMR would be a new Stage 13 (or a separate command `lpacleaner omr`)
+- It consumes Stage 7 output (dewarped images) and Stage 7 metadata
+  (staff positions)
+- It runs after the image pipeline, optionally in parallel with
+  enhancement/OCR
+- It produces its own output files (MEI XML) alongside the PDF
+
+---
+
 ## Resumability and Parallelism
 
 ### Per-Image Resume
