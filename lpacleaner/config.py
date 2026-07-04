@@ -71,6 +71,19 @@ class Config:
     page_number_position: str = "top-right"
     expected_staff_lines: int = 16
 
+    # Stitch parameters (Stage 1)
+    stitch_min_matches: int = 30
+    stitch_ratio_threshold: float = 0.75
+    stitch_min_overlap_frac: float = 0.2
+    stitch_inlier_ratio: float = 0.5
+    retake_overlap_threshold: float = 0.9
+
+    # Page overrides (manual stitch control)
+    stitch_groups: list[list[str]] | None = None
+    exclude_images: list[str] | None = None
+    no_stitch_images: list[str] | None = None
+    include_covers: bool = False
+
     # Photography / condition
     has_flash_hotspots: bool = False
     fingers_detected: bool = False
@@ -179,6 +192,21 @@ class Config:
         ocr = toml_data.get("ocr", {})
         _map_if_present(kwargs, ocr, "language", "ocr_lang")
         _map_if_present(kwargs, ocr, "engine", "ocr_engine")
+
+        # [stitch] section
+        stitch = toml_data.get("stitch", {})
+        _map_if_present(kwargs, stitch, "min_matches", "stitch_min_matches")
+        _map_if_present(kwargs, stitch, "ratio_threshold", "stitch_ratio_threshold")
+        _map_if_present(kwargs, stitch, "min_overlap_frac", "stitch_min_overlap_frac")
+        _map_if_present(kwargs, stitch, "inlier_ratio", "stitch_inlier_ratio")
+        _map_if_present(kwargs, stitch, "retake_overlap_threshold", "retake_overlap_threshold")
+
+        # [page_overrides] section
+        overrides_section = toml_data.get("page_overrides", {})
+        _map_if_present(kwargs, overrides_section, "stitch_groups", "stitch_groups")
+        _map_if_present(kwargs, overrides_section, "exclude", "exclude_images")
+        _map_if_present(kwargs, overrides_section, "no_stitch", "no_stitch_images")
+        _map_if_present(kwargs, overrides_section, "include_covers", "include_covers")
 
         # [photography] section
         photography = toml_data.get("photography", {})
