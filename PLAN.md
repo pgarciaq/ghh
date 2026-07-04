@@ -363,6 +363,19 @@ retake_overlap_threshold: float = 0.9  # above this = retake, not partial
       lower confidence threshold
 ```
 
+6. Focus quality detection (QA metric, see K3):
+   a. Compute Laplacian variance on the central 80% of the image
+      (avoid edges where blur is expected from depth of field)
+   b. focus_score = cv2.Laplacian(gray, cv2.CV_64F).var()
+   c. Record in metadata as focus_score
+   d. If focus_score < threshold (default 100): flag as blurry
+   e. For books where many pages are blurry (poor camera/lighting),
+      the threshold is auto-calibrated by analyze to the 10th
+      percentile of sampled focus scores
+   Note: blur cannot be fixed programmatically. This detection
+   exists to flag pages for the user to reshoot or accept.
+```
+
 ### Parameters
 
 ```python
@@ -370,12 +383,14 @@ orient_downscale_width: int = 1000
 orient_hough_threshold: int = 50
 orient_hough_min_length: int = 100
 orient_hough_max_gap: int = 15
+focus_score_threshold: float = 100.0
 ```
 
 ### Input/Output
 
 - Input: stitched image from `01_stitched/` (or earlier if stages skipped)
 - Output: correctly-oriented JPG in `02_oriented/`
+- Metadata: orientation method, confidence, focus_score, blur flag
 
 ---
 
@@ -508,8 +523,14 @@ page_detect_min_area_frac: float = 0.3
    height = max(dist(TL,BL), dist(TR,BR))
 3. dst = [[0,0], [width,0], [width,height], [0,height]]
 4. M = cv2.getPerspectiveTransform(src_corners, dst)
-5. result = cv2.warpPerspective(img, M, (width, height))
+5. Estimate background color: median of border pixels (outermost 5%)
+6. result = cv2.warpPerspective(img, M, (width, height),
+       borderMode=cv2.BORDER_CONSTANT, borderValue=bg_color)
 ```
+
+Out-of-bounds pixels are filled with the estimated page background color,
+not black. This prevents downstream stages (enhance, normalize) from
+being confused by black corners.
 
 ### Input/Output
 
@@ -591,7 +612,9 @@ Two paths: classical (default) and AI (optional).
    b. Interpolate dy across full image height
    c. map_x[y,x] = x, map_y[y,x] = y - dy_interpolated[y,x]
 
-4. Apply: cv2.remap(img, map_x, map_y, INTER_CUBIC)
+4. Estimate background color: median of border pixels (outermost 5%)
+5. Apply: cv2.remap(img, map_x, map_y, INTER_CUBIC,
+       borderMode=cv2.BORDER_CONSTANT, borderValue=bg_color)
    (Use UMat for GPU -- 1.5x speedup)
 
 5. Pages with < 2 detected staff lines:
@@ -640,8 +663,20 @@ dewarp_morph_kernel: tuple = (1, 20)
    a. Binary threshold (Otsu)
    b. Projection profile: for angles in [-5, +5] step 0.1,
       score = variance of row sums. Best = max variance.
-4. Rotate by -skew_angle via cv2.warpAffine
-5. Skip if |skew_angle| < 0.1 degrees
+4. Estimate background color: median of border pixels (outermost 5%)
+5. Rotate by -skew_angle via cv2.warpAffine with
+   borderMode=cv2.BORDER_CONSTANT, borderValue=bg_color
+6. Skip rotation if |skew_angle| < 0.1 degrees
+
+7. Post-geometry trim (runs even if rotation was skipped):
+   a. The geometric transforms in Stages 5, 7, 8 may have shifted
+      content boundaries. Re-detect the actual content bounding box:
+      - Threshold: pixels significantly different from bg_color
+      - Find bounding rect of non-background region
+   b. Crop to the content bounding box
+   c. Add uniform margin padding (default 2% of width) filled with
+      bg_color
+   d. This produces the cleanest possible input for enhancement
 ```
 
 ### Parameters
@@ -1109,7 +1144,7 @@ PDF is reviewed.
 
 1. **Per-page confidence scores**: Each stage computes a confidence metric
    and writes it to `pipeline.json`:
-   - Orientation: number of agreeing signals (0-3)
+   - Orientation: number of agreeing signals (0-3), focus score (Laplacian variance)
    - Page detection: contour area as fraction of image
    - Dewarping: number of staff lines found, polynomial fit R-squared
    - Deskewing: skew angle magnitude
