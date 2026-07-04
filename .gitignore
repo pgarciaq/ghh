@@ -1,4 +1,6 @@
 .shiftlog/
+.claude/
+.cursor/
 __pycache__/
 *.py[cod]
 *.egg-info/
