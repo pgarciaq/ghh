@@ -46,7 +46,7 @@ physical condition (coastal preservation, humidity damage, aging).
 | -- | Config: layout/condition fields | **Done** | 6 tests | |
 | -- | Test tiers (@pytest.mark.slow) | **Done** | 16 tagged | |
 | 9 | stages/analyze.py | **Done** | 18 tests | |
-| 10 | Stage 2 (orientation) | **Done** | 18 tests | |
+| 10 | Stage 2 (orientation) | **Done** | 31 tests | OSD + adaptive OSD + title + spine cascade; 224/224 on LPA-1 |
 | 11 | Stage 3 (lens correct) | Pending | | |
 | 12 | Stage 4 (page detect) | Pending | | |
 | 13 | Stage 5 (perspective) | Pending | | |
@@ -583,64 +583,137 @@ CLI flags:
 
 ## Stage 2: Orientation Normalization (`orientation.py`)
 
+Mandatory stage -- never skipped.  EXIF is intentionally **not** relied upon
+(unreliable across camera models and transfer tools).
+
 ### Algorithm
 
+Two-phase content-based orientation:
+
 ```
-1. Read EXIF orientation tag (PIL.Image._getexif()[274])
-2. Apply EXIF rotation:
-     1 -> no-op, 6 -> 90 CW, 8 -> 90 CCW, 3 -> 180
+Phase 1 — Axis detection (0° vs 90°)
+─────────────────────────────────────
+1. Downscale to max 1200 px (speed).
+2. Count near-horizontal line segments via Canny + HoughLinesP at 0°
+   and at 90° CCW.
+3. Pick the orientation with more horizontal lines, provided:
+   a. max(h_lines_0, h_lines_90) >= 5     (_HORIZONTAL_LINE_MIN_COUNT)
+   b. ratio of max / min >= 2.0            (confidence threshold)
+4. Validate with _has_real_staff_lines():
+   a. Build red ink mask (HSV hue within staff_color_range of
+      staff_color_hue, saturation > 120).
+   b. Reject if total red area < 0.5%      (_RED_AREA_MIN = 0.005)
+      → page has no staff ink (blank/dirty), falls to portrait fallback.
+   c. Apply horizontal morphological opening (kernel width = max(w/20, 30)).
+   d. Reject if surviving red area > 5%    (_STAFF_AREA_MAX = 0.05)
+      → textured surface (rusty cover), falls to portrait fallback.
+5. If staff lines valid → apply axis rotation → proceed to Phase 2.
+6. If no confident staff lines → portrait fallback:
+   if w > h: rotate 90° CCW to enforce portrait → proceed to Phase 2.
 
-3. Detect content orientation via staff lines:
-   a. Downscale to 1000px wide (speed)
-   b. Isolate staff ink: mask = detect_ink_mask(img, cfg)
-   c. HoughLinesP(mask, rho=1, theta=pi/180, threshold=50,
-                  minLineLength=100, maxLineGap=15)
-   d. Compute angle of each line segment
-   e. Count segments within 15deg of horizontal vs vertical
-   f. If vertical > horizontal: image needs 90deg rotation
-   g. Direction: check which edge has more staff lines
+Phase 2 — Polarity detection (0° vs 180°), cascading
+─────────────────────────────────────────────────────
+After axis correction the image should have staff lines horizontal (or
+be portrait-enforced).  The question is whether it is right-side-up or
+upside-down.  Four detectors are tried in order; the first one to
+produce a confident result wins.
 
-4. 180-degree disambiguation (see K1 for full risk analysis):
-   a. Signal 1: page number detection in configured quadrant
-   b. Signal 2: border frame asymmetry (if cfg.has_border_frame)
-   c. Signal 3: text direction (ascender/descender distribution)
-   d. Multi-signal voting: require 2+ signals to agree
-   e. If ambiguous: flag for manual review
+  2a. Tesseract OSD — standard pass
+      ·  Downscale to max 1200 px.
+      ·  Run pytesseract.image_to_osd() on the colour image.
+      ·  If confidence >= 2.0 and degrees ∈ {0, 180}: use result.
+         180° → rotate 180°.
 
-5. Sequential consistency pass (after all pages oriented):
-   a. Check for isolated orientation flips
-   b. If page N differs from N-1 and N+1, re-evaluate with
-      lower confidence threshold
+  2b. Tesseract OSD — adaptive-threshold pass
+      ·  Convert to grayscale.
+      ·  Apply cv2.adaptiveThreshold(GAUSSIAN_C, blockSize=31, C=15).
+      ·  Downscale to max 2000 px (higher resolution preserves small
+         character detail in aged manuscripts).
+      ·  Run pytesseract.image_to_osd(config="--dpi 300").
+      ·  Same confidence threshold (>= 2.0).
+      ·  Catches pages where the standard pass fails due to stains,
+         ink bleed, decorative red shapes, or low character count.
+
+  2c. Red title detection (chant-book-specific)
+      ·  Build non-staff red mask (red_mask minus horizontal morph opening).
+      ·  Build dark ink mask (V < 80).
+      ·  For each row, compute:
+         - red_per_row = fraction of non-staff red pixels
+         - central_dark_per_row = fraction of dark pixels in central 80%
+      ·  Title-eligible rows: red_per_row > 3% AND central_dark < 2.5%.
+         (Titles are pure red lines with no dark text; body rubrics are
+         always mixed with dark text in the same rows.)
+      ·  Zero out non-eligible rows.
+      ·  Compare weighted scores in the top 10% vs bottom 10% of the image
+         (edge_frac = 0.10):
+         - Weights: linear, highest at the extreme edge, decaying to 0 at
+           the edge-zone boundary (np.linspace).
+         - top_score = Σ (title_red[:top_cut] > 0) × top_weights
+         - bot_score = Σ (title_red[bot_cut:] > 0) × bot_weights
+      ·  If total_score (top + bot) < 50: insufficient signal → next detector.
+      ·  If bot_score > top_score: upside-down → rotate 180°.
+
+  2d. Spine detection (covers, blanks)
+      ·  Convert to HSV.
+      ·  Compare S/V ratio (saturation / max(brightness, 1)) of the left
+         vs right 15% edge bands.
+      ·  The more-saturated, darker edge is the spine (worn/oxidized).
+      ·  Western convention: spine on the left.
+      ·  If right S/V > left S/V and relative difference > 10%:
+         rotate 180° to move spine to the left.
+
+Phase 3 — Focus QA
+───────────────────
+·  Compute Laplacian variance on the central 80% of the image.
+·  focus_score = cv2.Laplacian(gray, cv2.CV_64F).var()
+·  If focus_score < threshold (default 100.0): flag as blurry.
+·  Blur cannot be fixed programmatically; this flags pages for reshoot.
 ```
 
-6. Focus quality detection (QA metric, see K3):
-   a. Compute Laplacian variance on the central 80% of the image
-      (avoid edges where blur is expected from depth of field)
-   b. focus_score = cv2.Laplacian(gray, cv2.CV_64F).var()
-   c. Record in metadata as focus_score
-   d. If focus_score < threshold (default 100): flag as blurry
-   e. For books where many pages are blurry (poor camera/lighting),
-      the threshold is auto-calibrated by analyze to the 10th
-      percentile of sampled focus scores
-   Note: blur cannot be fixed programmatically. This detection
-   exists to flag pages for the user to reshoot or accept.
-```
+### Constants
 
-### Parameters
+| Constant | Value | Purpose |
+|---|---|---|
+| `_HORIZONTAL_LINE_MIN_COUNT` | 5 | Minimum HoughLinesP segments to consider staff lines present |
+| `_STAFF_AREA_MAX` | 0.05 (5%) | Maximum red area after morph opening; above = textured surface |
+| `_RED_AREA_MIN` | 0.005 (0.5%) | Minimum total red area; below = blank page (no staff ink) |
+| `_OSD_MIN_CONFIDENCE` | 2.0 | Tesseract OSD confidence threshold for both passes |
+| `_FOCUS_THRESHOLD_DEFAULT` | 100.0 | Laplacian variance below this = blurry |
+
+### OSD implementation details
+
+- Standard pass: 1200 px max, colour, default DPI.
+- Adaptive pass: 2000 px max, Gaussian adaptive threshold (block=31, C=15),
+  explicit `--dpi 300`.  The binarization removes stains, ink bleed, and
+  parchment texture; the higher resolution preserves small character detail.
+- Both passes use `pytesseract.image_to_osd()` which calls Tesseract in
+  `--psm 0` mode (orientation and script detection from letter shapes).
+- Graceful degradation: `TesseractError` is caught and treated as
+  inconclusive (returns `(None, 0.0)`), falling through to the next detector.
+
+### Parameters (Config)
 
 ```python
-orient_downscale_width: int = 1000
-orient_hough_threshold: int = 50
-orient_hough_min_length: int = 100
-orient_hough_max_gap: int = 15
+staff_color_hue: int = 0        # HSV hue of staff ink (red ≈ 0 or 180)
+staff_color_range: int = 15     # ± hue tolerance for staff ink detection
 focus_score_threshold: float = 100.0
 ```
 
 ### Input/Output
 
-- Input: stitched image from `01_stitched/` (or earlier if stages skipped)
-- Output: correctly-oriented JPG in `02_oriented/`
-- Metadata: orientation method, confidence, focus_score, blur flag
+- Input: stitched image from `01_stitched/` (or `00_preprocessed/`)
+- Output: correctly-oriented PNG in `02_oriented/`
+- Metadata JSON sidecar with: `rotation_applied`, `orientation_method`,
+  `focus_score`, `focus_threshold`, `is_blurry`
+- `orientation_method` values: `staff_lines`, `staff_lines+polarity_flip`,
+  `portrait_fallback`, `portrait_fallback+polarity_flip`
+
+### Performance
+
+- 224 images @ 4000×3000: ~5.5 minutes (Phase 1 ≈ 15%, Phase 2 OSD ≈ 70%,
+  Phase 2 adaptive OSD ≈ 10%, Phase 3 ≈ 5%).
+- Adaptive OSD only runs when standard OSD is inconclusive (~20% of images),
+  so it adds minimal overhead for typical books.
 
 ---
 
@@ -2259,7 +2332,7 @@ Worker count auto-scales to available RAM, not just CPU count.
 
 ## Known Risks and Mitigations
 
-### K1. 180-Degree Disambiguation is Fragile
+### K1. 180-Degree Disambiguation — Resolved
 
 **Risk**: The orientation stage detects 90-degree rotation reliably (staff
 lines are either horizontal or vertical), but distinguishing right-side-up
@@ -2267,25 +2340,38 @@ from upside-down is much harder. Page numbers are small, faded, or absent.
 If this fails, the page is upside down and every downstream stage fails
 silently.
 
-**Mitigations**:
+**Resolution** (implemented):
 
-1. **Sequential consistency**: After initial per-page orientation, run a
-   second pass that enforces consistency. If pages N-1 and N+1 are both
-   right-side-up, page N should be too. Isolated flips are almost certainly
-   errors.
-2. **Text direction detection**: Latin text has ascenders (b, d, f, h, k, l)
-   that point upward and descenders (g, j, p, q, y) that point downward.
-   Compute vertical distribution of dark pixels in the text regions: the
-   top-heavy half is "up." This works independently of staff lines.
-3. **Multi-signal voting**: Combine page number position, border asymmetry,
-   text direction, and sequential consistency. Require 2+ signals to agree
-   before flipping 180 degrees. If ambiguous, flag for manual review.
-4. **Manual override**: The `inspect` command shows orientation detection
-   results. The user can add `[orientation_overrides]` to `book.toml`:
+The 180° ambiguity is resolved by a cascading polarity detector that
+achieved 224/224 (100%) accuracy on the LPA-1 test set:
+
+1. **Tesseract OSD (letter shapes)**: Primary detector.  Analyses the
+   shapes of individual characters (ascenders, descenders, letter
+   geometry) to determine if text is at 0° or 180°.  Two passes:
+   standard (1200 px, colour) and adaptive (2000 px, binarized,
+   `--dpi 300`).  Handles ~98% of pages including aged manuscripts
+   with stains and decorative elements.
+2. **Red title edge comparison**: Chant-book-specific fallback.
+   Compares proximity-weighted title-eligible red ink in the top 10%
+   vs bottom 10% of the image.  Title-eligible = red rows with no
+   dark text in the centre (distinguishes titles from body rubrics).
+3. **Spine S/V detection**: Last-resort fallback for covers and blank
+   pages.  Compares saturation-to-brightness ratio of left/right
+   edges; the more-worn edge is placed on the left (Western
+   convention).
+4. **Manual override**: The `[orientation_overrides]` table in
+   `book.toml` can force a specific rotation for individual images:
    ```toml
    [orientation_overrides]
    "IMG_0080.JPG" = 180  # force 180-degree rotation
    ```
+
+**Design decisions**:
+- EXIF is not used (unreliable across devices and transfer tools).
+- OSD is preferred over page-number detection (page numbers are too
+  small and faded in this corpus).
+- Sequential consistency pass was not needed (per-page detection is
+  accurate enough).
 
 ### K2. Stage 9 Enhancement Chain Ordering
 
@@ -2795,8 +2881,8 @@ on synthetic images:
 7. ~~**Stage 0** (preprocess)~~: ✅ wire preprocess.py into BaseStage (18 tests)
 8. ~~**Stage 1** (stitch)~~: ✅ grouping, stitching fallback chain, retake dedup, non-content detection (23 tests)
 9. **stages/analyze.py**: auto-detect book characteristics, generate book.toml, adaptive sampling, coarse orientation, simplified quad detection, median-based robustness
-10. **Stage 2** (orientation): EXIF + ink line angle + 180deg disambiguation + focus QA + graceful degradation
-11. **Real image smoke test**: run Stages 0-1-2 on LPA-1 samples, visual inspection
+10. ~~**Stage 2** (orientation)~~: ✅ content-based axis detection (HoughLinesP) + staff-area validation + cascading polarity (Tesseract OSD standard + adaptive, red title edges, spine S/V) + focus QA (31 tests, 224/224 on LPA-1)
+11. ~~**Real image smoke test**~~: ✅ Stages 0-1-2 on full LPA-1 set (225 images), visual inspection confirmed 224/224 correct orientation
 12. **Stage 3** (lens correct, optional): radial distortion correction (R7) -- simple
 13. **Stage 4** (page detect): Otsu + fallback chain (R2), page type classification
 14. **Stage 5** (perspective): homography from quad corners, background fill

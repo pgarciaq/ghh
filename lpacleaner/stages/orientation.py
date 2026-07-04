@@ -1,23 +1,28 @@
 """Stage 2: Orientation normalization.
 
 Two-phase content-based orientation:
-1. **Axis detection**: horizontal line counting determines whether to
-   rotate 0° or 90° so staff lines run left-to-right.  A staff-area
-   validation rejects textured surfaces (e.g. rusty book covers) that
-   generate many false horizontal lines.
-2. **Polarity detection** (cascading):
-   a. **Tesseract OSD**: analyses letter shapes to detect text at 0°
-      or 180°.  Used as primary detector when confidence is adequate.
-   b. **Red title detection**: weighted edge comparison of title-
-      eligible red ink.  Fallback for when OSD is uncertain.
-   c. **Spine detection**: compares left/right edge S/V ratios.
-      Last-resort fallback for covers and blank pages.
 
-Falls back to portrait enforcement for non-music pages (covers, blanks).
+1. **Axis detection**: horizontal line counting (Canny + HoughLinesP)
+   determines whether to rotate 0° or 90° so staff lines run
+   left-to-right.  Staff-area validation rejects textured surfaces
+   (rusty covers) and blank pages (insufficient red ink).
+
+2. **Polarity detection** (cascading, first confident result wins):
+   a. **Tesseract OSD (standard)**: 1200 px, colour image.
+   b. **Tesseract OSD (adaptive)**: 2000 px, Gaussian adaptive
+      threshold, ``--dpi 300``.  Catches stained/decorative pages.
+   c. **Red title detection**: proximity-weighted edge comparison of
+      title-eligible red ink (top 10% vs bottom 10%).
+   d. **Spine detection**: left/right S/V ratio comparison.
+
+Falls back to portrait enforcement for non-music pages.
 EXIF is intentionally not relied upon.
 
 Also computes a Laplacian focus QA score per image.
 Mandatory stage -- never skipped.
+
+See PLAN.md "Stage 2: Orientation Normalization" for the full algorithm
+description, constants, and design rationale.
 """
 
 from __future__ import annotations
