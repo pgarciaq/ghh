@@ -2,13 +2,19 @@
 
 Two-phase content-based orientation:
 1. **Axis detection**: horizontal line counting determines whether to
-   rotate 0° or 90° so staff lines run left-to-right.
+   rotate 0° or 90° so staff lines run left-to-right.  A staff-area
+   validation rejects textured surfaces (e.g. rusty book covers) that
+   generate many false horizontal lines.
 2. **Polarity detection**: compares title-eligible red ink in the top
    vs bottom edges of the page.  Title-eligible rows are those with
    significant red coverage and very little dark/black text in the
    central area (titles are pure red lines; body rubrics are always
    mixed with dark text).  Only the outer 15% edges are compared,
    ignoring body content in the middle 70%.
+3. **Spine fallback**: when no red title signal is available (covers,
+   blanks), compares left/right edge saturation-to-brightness ratios.
+   The more-saturated, darker edge is assumed to be the spine and is
+   placed on the left (standard Western book orientation).
 
 Falls back to portrait enforcement for non-music pages (covers, blanks).
 EXIF is intentionally not relied upon.
@@ -33,6 +39,7 @@ logger = logging.getLogger(__name__)
 
 _FOCUS_THRESHOLD_DEFAULT = 100.0
 _HORIZONTAL_LINE_MIN_COUNT = 5
+_STAFF_AREA_MAX = 0.05
 
 
 class OrientationStage(BaseStage):
@@ -104,17 +111,26 @@ def _orient_by_content(
     ratio = max_lines / min_lines
 
     if max_lines >= _HORIZONTAL_LINE_MIN_COUNT and ratio >= 2.0:
-        if h_lines_90 > h_lines_0:
-            img = cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
-            base_rotation = 90
-        else:
-            base_rotation = 0
+        # Validate that these are real staff lines, not texture.
+        # On textured surfaces (rusty covers), large areas of red
+        # survive the horizontal morphological opening because the
+        # patches are wide, not thin like actual staff lines.
+        if _has_real_staff_lines(img, cfg):
+            if h_lines_90 > h_lines_0:
+                img = cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
+                base_rotation = 90
+            else:
+                base_rotation = 0
 
-        # Phase 2: check if upside-down using red title position
-        flipped, did_flip = _correct_polarity(img, cfg)
-        total = (base_rotation + (180 if did_flip else 0)) % 360
-        method = "staff_lines" + ("+title_flip" if did_flip else "")
-        return flipped, total, method
+            flipped, did_flip = _correct_polarity(img, cfg)
+            total = (base_rotation + (180 if did_flip else 0)) % 360
+            method = "staff_lines" + ("+polarity_flip" if did_flip else "")
+            return flipped, total, method
+        else:
+            logger.info(
+                "Horizontal lines detected but staff-area too large "
+                "(textured surface) → falling back to portrait"
+            )
 
     # Fallback: no confident staff line signal (cover, blank, text page).
     if w > h:
@@ -124,10 +140,9 @@ def _orient_by_content(
     else:
         base_rotation = 0
 
-    # Still try polarity on the fallback orientation
     flipped, did_flip = _correct_polarity(img, cfg)
     total = (base_rotation + (180 if did_flip else 0)) % 360
-    method = "portrait_fallback" + ("+title_flip" if did_flip else "")
+    method = "portrait_fallback" + ("+polarity_flip" if did_flip else "")
     return flipped, total, method
 
 
@@ -212,13 +227,109 @@ def _correct_polarity(img: np.ndarray, cfg: Config) -> tuple[np.ndarray, bool]:
 
     if total_edge < 50:
         logger.debug("Polarity: insufficient title red at edges (%d)", total_edge)
-        return img, False
+        return _detect_spine_polarity(img)
 
     if bot_px > top_px:
         logger.info(
             "Title red at bottom edge (%d) > top (%d) → rotating 180°",
             bot_px,
             top_px,
+        )
+        return cv2.rotate(img, cv2.ROTATE_180), True
+
+    return img, False
+
+
+def _has_real_staff_lines(img: np.ndarray, cfg: Config) -> bool:
+    """Check whether detected horizontal lines are real staff lines.
+
+    Textured surfaces (e.g. rusty book covers) generate many false
+    horizontal lines in HoughLinesP.  Real staff lines are *thin*
+    horizontal red structures that occupy a tiny fraction of the image
+    area.  On a textured surface the red that survives a horizontal
+    morphological opening is *wide* (patches, not lines) and covers
+    a much larger area fraction.
+
+    Returns True if the staff-like red area is small enough to be
+    credible staff lines (< ``_STAFF_AREA_MAX``).
+    """
+    oh, ow = img.shape[:2]
+
+    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+    hue = hsv[:, :, 0].astype(np.int16)
+    sat = hsv[:, :, 1]
+
+    hue_diff = np.minimum(
+        np.abs(hue - cfg.staff_color_hue),
+        180 - np.abs(hue - cfg.staff_color_hue),
+    )
+    red_mask = ((hue_diff < cfg.staff_color_range) & (sat > 120)).astype(np.uint8) * 255
+
+    horiz_kernel = cv2.getStructuringElement(
+        cv2.MORPH_RECT, (max(ow // 20, 30), 1)
+    )
+    staff_only = cv2.morphologyEx(red_mask, cv2.MORPH_OPEN, horiz_kernel)
+
+    staff_area = np.count_nonzero(staff_only) / (oh * ow)
+    logger.debug("Staff-area ratio: %.4f (threshold %.4f)", staff_area, _STAFF_AREA_MAX)
+    return bool(staff_area <= _STAFF_AREA_MAX)
+
+
+def _detect_spine_polarity(img: np.ndarray) -> tuple[np.ndarray, bool]:
+    """Fallback polarity detection using spine location.
+
+    When no red title signal is available (covers, blanks), try to
+    find the book spine by comparing the saturation-to-brightness
+    ratio of the left and right edges.  The spine is typically the
+    most worn / oxidized edge, appearing darker and more saturated.
+
+    Western book convention: spine on the left when viewing the
+    front cover.  If the spine appears to be on the right, rotate
+    180° to correct.
+
+    Requires a clear asymmetry (ratio difference > 10%) to act;
+    otherwise returns the image unchanged.
+
+    Returns (image, did_flip).
+    """
+    oh, ow = img.shape[:2]
+    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+
+    margin = int(ow * 0.15)
+    if margin < 10:
+        return img, False
+
+    left_hsv = hsv[:, :margin]
+    right_hsv = hsv[:, ow - margin :]
+
+    def _sv_ratio(band: np.ndarray) -> float:
+        s = float(np.mean(band[:, :, 1]))
+        v = max(float(np.mean(band[:, :, 2])), 1.0)
+        return s / v
+
+    left_sv = _sv_ratio(left_hsv)
+    right_sv = _sv_ratio(right_hsv)
+
+    logger.debug(
+        "Spine detection: left S/V=%.3f, right S/V=%.3f",
+        left_sv,
+        right_sv,
+    )
+
+    # Require at least 10% relative difference to be confident
+    max_sv = max(left_sv, right_sv)
+    if max_sv < 0.01:
+        return img, False
+    diff_pct = abs(right_sv - left_sv) / max_sv
+    if diff_pct < 0.10:
+        logger.debug("Spine S/V difference too small (%.0f%%), no flip", diff_pct * 100)
+        return img, False
+
+    if right_sv > left_sv:
+        logger.info(
+            "Spine on right (S/V=%.3f) > left (%.3f) → rotating 180°",
+            right_sv,
+            left_sv,
         )
         return cv2.rotate(img, cv2.ROTATE_180), True
 

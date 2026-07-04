@@ -96,12 +96,12 @@ class TestOrientationProcessImage:
         from lpacleaner.stages.orientation import OrientationStage
 
         stage = OrientationStage()
-        img = make_music_page(width=300, height=400)
+        img = make_music_page(width=1200, height=1600)
         cfg = Config(input_dir=Path("/tmp"))
 
         result_img, meta = stage.process_image(img, {}, cfg)
 
-        assert result_img.shape == img.shape
+        assert result_img.shape[:2] == img.shape[:2]
         assert meta["stage"] == "orientation"
         assert "staff_lines" in meta["orientation_method"]
 
@@ -110,7 +110,7 @@ class TestOrientationProcessImage:
         from lpacleaner.stages.orientation import OrientationStage
 
         stage = OrientationStage()
-        page = make_music_page(width=300, height=400)
+        page = make_music_page(width=1200, height=1600)
         sideways = cv2.rotate(page, cv2.ROTATE_90_CLOCKWISE)
         cfg = Config(input_dir=Path("/tmp"))
 
@@ -124,7 +124,7 @@ class TestOrientationProcessImage:
         from lpacleaner.stages.orientation import OrientationStage
 
         stage = OrientationStage()
-        img = make_music_page(width=400, height=300)
+        img = make_music_page(width=1600, height=1200)
         cfg = Config(input_dir=Path("/tmp"))
 
         result_img, meta = stage.process_image(img, {}, cfg)
@@ -202,6 +202,60 @@ class TestOrientationProcessImage:
 
         result, did_flip = _correct_polarity(img, cfg)
         assert did_flip is False, "Body rubrics with dark text should be ignored"
+
+    def test_staff_area_rejects_textured_surface(self):
+        """A rusty/textured surface should fail the staff-area validation."""
+        from lpacleaner.stages.orientation import _has_real_staff_lines
+
+        # Simulate a rusty cover: large horizontal red patches covering
+        # > 5% of image area (real covers reach ~15%).
+        img = np.full((1200, 1600, 3), (230, 220, 200), dtype=np.uint8)
+        red = (0, 0, 200)
+        for y in range(100, 1100, 8):
+            img[y : y + 6, 100:1500] = red
+        cfg = Config(input_dir=Path("/tmp"), staff_color_hue=0, staff_color_range=15)
+
+        assert _has_real_staff_lines(img, cfg) is False
+
+    def test_staff_area_accepts_real_staff_lines(self):
+        """Thin staff lines should pass the staff-area validation."""
+        from lpacleaner.stages.orientation import _has_real_staff_lines
+
+        img = make_music_page(width=1600, height=1200)
+        cfg = Config(input_dir=Path("/tmp"), staff_color_hue=0, staff_color_range=15)
+
+        assert _has_real_staff_lines(img, cfg) is True
+
+    def test_spine_detection_flips_when_spine_on_right(self):
+        """Spine on the right edge (darker, more saturated) triggers flip."""
+        from lpacleaner.stages.orientation import _detect_spine_polarity
+
+        img = np.full((400, 300, 3), (180, 180, 180), dtype=np.uint8)
+        # Right edge: darker and more saturated (simulating a worn spine)
+        img[:, 250:] = (80, 100, 140)
+
+        result, did_flip = _detect_spine_polarity(img)
+        assert did_flip is True
+
+    def test_spine_detection_keeps_when_spine_on_left(self):
+        """Spine already on the left keeps image unchanged."""
+        from lpacleaner.stages.orientation import _detect_spine_polarity
+
+        img = np.full((400, 300, 3), (180, 180, 180), dtype=np.uint8)
+        # Left edge: darker and more saturated
+        img[:, :50] = (80, 100, 140)
+
+        result, did_flip = _detect_spine_polarity(img)
+        assert did_flip is False
+
+    def test_spine_detection_no_flip_on_symmetric_image(self):
+        """A symmetric image (no clear spine) should not be flipped."""
+        from lpacleaner.stages.orientation import _detect_spine_polarity
+
+        img = np.full((400, 300, 3), (180, 180, 180), dtype=np.uint8)
+
+        result, did_flip = _detect_spine_polarity(img)
+        assert did_flip is False
 
     def test_computes_focus_score(self):
         from lpacleaner.stages.orientation import OrientationStage
