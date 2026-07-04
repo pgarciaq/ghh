@@ -46,7 +46,7 @@ physical condition (coastal preservation, humidity damage, aging).
 | -- | Config: layout/condition fields | **Done** | 6 tests | |
 | -- | Test tiers (@pytest.mark.slow) | **Done** | 16 tagged | |
 | 9 | stages/analyze.py | **Done** | 18 tests | |
-| 10 | Stage 2 (orientation) | Pending | | |
+| 10 | Stage 2 (orientation) | **Done** | 18 tests | |
 | 11 | Stage 3 (lens correct) | Pending | | |
 | 12 | Stage 4 (page detect) | Pending | | |
 | 13 | Stage 5 (perspective) | Pending | | |
@@ -61,7 +61,7 @@ physical condition (coastal preservation, humidity damage, aging).
 | 22 | CLI polish | Pending | | |
 | 23 | Integration tests | Pending | | |
 
-**Totals:** 199 tests, all green (183 fast + 16 slow).
+**Totals:** 217 tests, all green (196 fast + 21 slow).
 
 ---
 
