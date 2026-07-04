@@ -113,6 +113,7 @@ output/
   11_ocr/                    IMG_0011.hocr, ...  (hOCR XML files)
   output.pdf                                     (final searchable PDF)
   pipeline.json                                  (stage status, parameters used)
+  lpacleaner.log                                 (detailed log, always verbose)
 ```
 
 ---
@@ -1196,6 +1197,13 @@ class Config:
     skip_normalize: bool = False
     skip_ocr: bool = False
 
+    # Error handling, cleanup, logging
+    on_error: str = "skip"         # "skip" or "stop"
+    cleanup: bool = False          # delete intermediate checkpoints after success
+    keep_stages: list[str] = None  # if set, only keep these stage dirs
+    verbose: bool = False
+    quiet: bool = False
+
     # Book characteristics (from book.toml via analyze)
     staff_color_hue: int = 5
     staff_color_range: int = 15
@@ -1231,9 +1239,14 @@ lpacleaner run INPUT_DIR --stages 2,3,4,5          # explicit stage list (advanc
 lpacleaner run INPUT_DIR --preview 5               # process only 5 images
 lpacleaner run INPUT_DIR --ai-dewarp
 lpacleaner run INPUT_DIR --binarize
+lpacleaner run INPUT_DIR --cleanup                 # delete intermediates after success
+lpacleaner run INPUT_DIR --on-error stop           # halt on first failure
+lpacleaner run INPUT_DIR --verbose                 # per-image debug output
+lpacleaner run INPUT_DIR --quiet                   # warnings and errors only
 lpacleaner analyze INPUT_DIR [-o OUTPUT_DIR] [--samples 15]
 lpacleaner inspect IMAGE_PATH [--config book.toml]
 lpacleaner review OUTPUT_DIR [--stage 09_enhanced]
+lpacleaner cleanup OUTPUT_DIR [--keep 07,09]       # delete intermediates post-hoc
 ```
 
 ### Workflow for a new book
@@ -1256,6 +1269,148 @@ lpacleaner run "/path/to/book/photos" --profile quick --preview 5
 # Review flagged pages after processing:
 lpacleaner review "/path/to/book/photos_output"
 ```
+
+---
+
+## Error Handling
+
+### Per-Image Error Policy
+
+When a single image fails in any stage, the pipeline must not crash.
+Failures are isolated per-image: the remaining images continue processing.
+
+```
+Error categories:
+
+1. Soft failure (stage-internal fallback):
+   - Example: dewarp finds no staff lines, falls back to passthrough
+   - Handled internally by the stage (fallback paths already in plan)
+   - Logged as WARNING, image flagged in pipeline.json
+   - No user intervention needed
+
+2. Hard failure (unrecoverable for this image):
+   - Example: corrupt JPEG, cv2 exception, degenerate polygon
+   - Caught by the pipeline orchestrator's per-image try/except
+   - Logged as ERROR with full traceback
+   - Image is flagged as "failed" in pipeline.json
+   - The image from the last successful stage is carried forward
+     (e.g., if Stage 7 dewarp fails, the Stage 6 content-area image
+     is passed to Stage 8 as-is)
+   - If the image failed in Stage 4 or earlier (no valid crop exists):
+     the image is excluded from the PDF entirely and reported
+
+3. Fatal failure (pipeline cannot continue):
+   - Example: output disk full, permissions error, all images fail
+   - Pipeline stops with a clear error message
+   - pipeline.json records the last successful state for resume
+
+CLI flag:
+  --on-error skip    (default) log, flag, continue with remaining images
+  --on-error stop    halt on first error (for debugging)
+
+End-of-run report:
+  "Processed 222/225 images. 2 flagged (soft), 1 failed (hard).
+   Failed: IMG_0080.JPG (Stage 7: polynomial fit ValueError)
+   Flagged: IMG_0045.JPG (low focus), IMG_0231.JPG (non-content)"
+```
+
+---
+
+## Disk Space Management
+
+### Checkpoint Storage Estimates
+
+At 12MP (4000×3000), each PNG checkpoint is ~35MB. Per book:
+
+| Stages kept | Images | Size per book | 15 books |
+|-------------|--------|---------------|----------|
+| All 13 | 225 | ~100 GB | ~1.5 TB |
+| Final only (10_normalized) | 225 | ~8 GB | ~120 GB |
+| Final + 3 key stages | 225 | ~30 GB | ~450 GB |
+
+Default: keep all checkpoints (enables resume and debugging).
+The CLI warns about estimated disk usage before processing starts:
+
+```
+"Estimated disk usage: ~105 GB for 225 images × 13 stages.
+ Available: 230 GB. Proceed? [Y/n]"
+```
+
+### Cleanup Options
+
+```bash
+# Remove intermediate checkpoints after successful completion,
+# keeping only 10_normalized/ (final images) and output.pdf
+lpacleaner run INPUT_DIR --cleanup
+
+# Keep only specific stages (for debugging a particular stage)
+lpacleaner run INPUT_DIR --keep-stages 02,07,09,10
+
+# Clean up a completed run after the fact
+lpacleaner cleanup OUTPUT_DIR              # keeps 10_normalized + PDF
+lpacleaner cleanup OUTPUT_DIR --keep 07,09 # keeps specific stages too
+```
+
+`--cleanup` deletes each stage's checkpoint directory after the next
+stage completes successfully for ALL images in that stage. This means
+resume goes back to the kept stages, not to the deleted intermediate.
+
+---
+
+## Logging
+
+### Design
+
+Structured logging via Python's `logging` module. Two outputs:
+
+1. **Console** (stderr): human-readable, colorized, progress-focused.
+   Controlled by `--verbose` / `--quiet`.
+2. **Log file** (`output/lpacleaner.log`): machine-parseable, always
+   verbose, includes timestamps and per-image details. Rotated at 50MB.
+
+### Verbosity Levels
+
+| CLI flag | Console level | What's shown |
+|----------|---------------|--------------|
+| `--quiet` | WARNING | Only errors and warnings |
+| (default) | INFO | Stage progress, summary stats, flagged pages |
+| `--verbose` | DEBUG | Per-image timing, parameter values, fallback decisions |
+
+### Log Format
+
+Console (default):
+```
+[Stage 2] Orienting images... 225/225 [00:12, 18.7 img/s]
+[Stage 2]   3 images flagged: IMG_0080 (low focus: 45.2)
+[Stage 7] Dewarping images... 222/222 [01:45, 2.1 img/s]
+[Stage 7]   210 dewarped (staff lines), 12 passthrough (text pages)
+[Stage 7]   ERROR: IMG_0080.JPG skipped (ValueError in polynomial fit)
+```
+
+Console (verbose):
+```
+[Stage 7] IMG_0011.JPG: 14 staff lines, poly R²=0.997, 0.42s
+[Stage 7] IMG_0012.JPG: 16 staff lines, poly R²=0.999, 0.38s
+[Stage 7] IMG_0013.JPG: 0 staff lines, passthrough (text page), 0.02s
+```
+
+Log file (always):
+```
+2026-07-04 04:30:12.345 INFO  stage=2 image=IMG_0011.JPG action=oriented method=exif+staff_lines angle=0 focus=342.5 elapsed_ms=55
+2026-07-04 04:30:12.400 INFO  stage=2 image=IMG_0012.JPG action=oriented method=exif+staff_lines angle=90 focus=287.3 elapsed_ms=62
+2026-07-04 04:30:15.123 WARN  stage=2 image=IMG_0080.JPG action=flagged reason=low_focus focus=45.2 threshold=100
+2026-07-04 04:32:45.678 ERROR stage=7 image=IMG_0080.JPG action=failed error="ValueError: polynomial fit singular matrix" traceback="..."
+```
+
+### Per-Stage Summary
+
+After each stage completes, a summary line is logged at INFO level:
+
+```
+[Stage 7] Complete: 210/222 dewarped, 12 passthrough, 0 failed. Total: 1m45s
+```
+
+This is also written to `pipeline.json` for programmatic access.
 
 ---
 
