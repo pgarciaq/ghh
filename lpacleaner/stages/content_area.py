@@ -1,0 +1,1 @@
+"""Stage: content_area."""

@@ -1,0 +1,17 @@
+.shiftlog/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.tox/
+.pytest_cache/
+.coverage
+htmlcov/
+*.so
+.venv/
+venv/
+tests/fixtures/*.png
+tests/golden/
