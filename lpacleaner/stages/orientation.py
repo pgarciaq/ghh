@@ -3,9 +3,12 @@
 Two-phase content-based orientation:
 1. **Axis detection**: horizontal line counting determines whether to
    rotate 0° or 90° so staff lines run left-to-right.
-2. **Polarity detection**: the vertical centroid of non-staff-line red ink
-   (title text, initials) determines right-side-up vs upside-down.
-   In chant books red titles appear at the top of the page.
+2. **Polarity detection**: compares title-eligible red ink in the top
+   vs bottom edges of the page.  Title-eligible rows are those with
+   significant red coverage and very little dark/black text in the
+   central area (titles are pure red lines; body rubrics are always
+   mixed with dark text).  Only the outer 15% edges are compared,
+   ignoring body content in the middle 70%.
 
 Falls back to portrait enforcement for non-music pages (covers, blanks).
 EXIF is intentionally not relied upon.
@@ -129,12 +132,24 @@ def _orient_by_content(
 
 
 def _correct_polarity(img: np.ndarray, cfg: Config) -> tuple[np.ndarray, bool]:
-    """Check if the image is upside-down using the red title position.
+    """Check if the image is upside-down using edge-only title detection.
 
-    Chant book pages have red title text at the top. After removing
-    horizontal staff lines from the red ink mask, the remaining red
-    (titles, initials, rubrication) should have its vertical centroid
-    in the upper half. If it's in the lower half, rotate 180°.
+    Chant book pages have a red title line near the top of the page.
+    Titles are a single line of pure red text spanning the page width
+    with no (or very little) dark/black text on the same rows.  Body
+    rubrics (red initials, decorated letters) always appear on rows
+    that also contain dark text.
+
+    Algorithm:
+    1. Build a non-staff red mask and a dark ink mask.
+    2. For each row, classify it as "title-eligible" when it has
+       significant red coverage (>3%) and very little dark text
+       (<1.5%) in the central 80% of the row.
+    3. Keep only red pixels on title-eligible rows.
+    4. Compare these pixels in the top *edge_frac* vs bottom
+       *edge_frac* of the image (ignoring the body middle).
+    5. If the bottom edge has more title red → the page is
+       upside-down → rotate 180°.
 
     Returns (image, did_flip).
     """
@@ -143,6 +158,7 @@ def _correct_polarity(img: np.ndarray, cfg: Config) -> tuple[np.ndarray, bool]:
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
     hue = hsv[:, :, 0].astype(np.int16)
     sat = hsv[:, :, 1]
+    val = hsv[:, :, 2]
 
     ink_hue = cfg.staff_color_hue
     ink_range = cfg.staff_color_range
@@ -152,27 +168,57 @@ def _correct_polarity(img: np.ndarray, cfg: Config) -> tuple[np.ndarray, bool]:
     )
     red_mask = ((hue_diff < ink_range) & (sat > 120)).astype(np.uint8) * 255
 
-    # Remove horizontal staff line structures so only titles/initials remain
+    # Remove horizontal staff line structures
     horiz_kernel = cv2.getStructuringElement(
         cv2.MORPH_RECT, (max(ow // 20, 30), 1)
     )
     staff_only = cv2.morphologyEx(red_mask, cv2.MORPH_OPEN, horiz_kernel)
     non_staff_red = cv2.subtract(red_mask, staff_only)
 
-    total_red = np.count_nonzero(non_staff_red)
-    if total_red < 100:
-        logger.debug("Polarity: insufficient non-staff red pixels (%d)", total_red)
-        return img, False
+    # Dark ink mask (black text, neumes, etc.)
+    dark_mask = (val < 80).astype(np.uint8)
 
-    centroid_y = float(np.mean(np.where(non_staff_red > 0)[0])) / oh
-
-    logger.debug(
-        "Polarity: centroid_y=%.3f, non_staff_red=%d", centroid_y, total_red,
+    # Per-row dark coverage in the central 80% (ignore corners where
+    # page numbers may appear in black).
+    margin = int(ow * 0.10)
+    central_width = max(ow - 2 * margin, 1)
+    central_dark_per_row = (
+        np.sum(dark_mask[:, margin : ow - margin], axis=1) / central_width
     )
 
-    if centroid_y > 0.5:
+    # Per-row red coverage
+    red_per_row = np.sum(non_staff_red > 0, axis=1) / ow
+
+    # Title-eligible rows: significant red AND very little dark
+    exclude = (red_per_row < 0.03) | (central_dark_per_row > 0.015)
+    title_red = non_staff_red.copy()
+    title_red[exclude] = 0
+
+    # Compare edge zones only (top 15% vs bottom 15%)
+    edge_frac = 0.15
+    top_cut = int(oh * edge_frac)
+    bot_cut = int(oh * (1.0 - edge_frac))
+
+    top_px = int(np.count_nonzero(title_red[:top_cut]))
+    bot_px = int(np.count_nonzero(title_red[bot_cut:]))
+    total_edge = top_px + bot_px
+
+    logger.debug(
+        "Polarity: title_red top=%d bot=%d (edge=%.0f%%)",
+        top_px,
+        bot_px,
+        edge_frac * 100,
+    )
+
+    if total_edge < 50:
+        logger.debug("Polarity: insufficient title red at edges (%d)", total_edge)
+        return img, False
+
+    if bot_px > top_px:
         logger.info(
-            "Red title centroid in lower half (%.3f) → rotating 180°", centroid_y
+            "Title red at bottom edge (%d) > top (%d) → rotating 180°",
+            bot_px,
+            top_px,
         )
         return cv2.rotate(img, cv2.ROTATE_180), True
 

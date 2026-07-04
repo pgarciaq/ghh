@@ -1,5 +1,11 @@
 """Click CLI: analyze, run, inspect, review, cleanup commands."""
 
+from __future__ import annotations
+
+import logging
+import sys
+from pathlib import Path
+
 import click
 
 from lpacleaner import __version__
@@ -13,8 +19,14 @@ def main():
 
 @main.command()
 @click.argument("input_dir", type=click.Path(exists=True, file_okay=False))
-@click.option("-o", "--output-dir", type=click.Path(file_okay=False), default=None)
-@click.option("--profile", type=click.Choice(["full", "geometry", "clean", "quick"]), default="full")
+@click.option("-o", "--output-dir", type=click.Path(file_okay=False), default=None,
+              help="Output directory (default: <input_dir>_output)")
+@click.option("--config", "config_path", type=click.Path(exists=True, dir_okay=False),
+              default=None, help="Path to book.toml configuration file")
+@click.option("--stages", "stage_spec", type=str, default=None,
+              help="Stages to run: comma-separated numbers or ranges (e.g. 0,1,2 or 0-2)")
+@click.option("--profile", type=click.Choice(["full", "geometry", "clean", "quick"]),
+              default="full")
 @click.option("--preview", type=int, default=0, help="Process only N images")
 @click.option("--skip-dewarp", is_flag=True)
 @click.option("--skip-deskew", is_flag=True)
@@ -26,13 +38,137 @@ def main():
 @click.option("--binarize", is_flag=True)
 @click.option("--cleanup", is_flag=True, help="Delete intermediate checkpoints after success")
 @click.option("--on-error", type=click.Choice(["skip", "stop", "force"]), default="skip")
-@click.option("--verbose", is_flag=True)
-@click.option("--quiet", is_flag=True)
-def run(input_dir, output_dir, profile, preview, skip_dewarp, skip_deskew,
-        skip_enhance, skip_normalize, skip_ocr, skip_content_area,
-        ai_dewarp, binarize, cleanup, on_error, verbose, quiet):
-    """Process book page photos into a searchable PDF."""
-    click.echo(f"Processing {input_dir}...")
+@click.option("-v", "--verbose", is_flag=True)
+@click.option("-q", "--quiet", is_flag=True)
+def run(input_dir, output_dir, config_path, stage_spec, profile, preview,
+        skip_dewarp, skip_deskew, skip_enhance, skip_normalize, skip_ocr,
+        skip_content_area, ai_dewarp, binarize, cleanup, on_error, verbose, quiet):
+    """Process book page photos through the pipeline.
+
+    Runs all implemented stages by default.  Use --stages to select specific
+    stages (e.g. ``--stages 0-2`` for preprocess, stitch, orientation).
+    """
+    from lpacleaner.config import Config
+    from lpacleaner.pipeline import PipelineState
+    from lpacleaner.stages import get_stages, parse_stage_spec, ALL_STAGE_NUMBERS
+
+    _configure_logging(verbose, quiet)
+
+    input_path = Path(input_dir)
+    if output_dir is None:
+        output_path = input_path.parent / f"{input_path.name}_output"
+    else:
+        output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    overrides = {
+        "output_dir": output_path,
+        "profile": profile,
+        "preview": preview,
+        "skip_dewarp": skip_dewarp,
+        "skip_deskew": skip_deskew,
+        "skip_enhance": skip_enhance,
+        "skip_normalize": skip_normalize,
+        "skip_ocr": skip_ocr,
+        "skip_content_area": skip_content_area,
+        "ai_dewarp": ai_dewarp,
+        "binarize": binarize,
+        "on_error": on_error,
+        "cleanup": cleanup,
+        "verbose": verbose,
+        "quiet": quiet,
+    }
+    cfg = Config.from_toml(input_path, toml_path=config_path, overrides=overrides)
+
+    if stage_spec is not None:
+        stage_numbers = parse_stage_spec(stage_spec)
+    else:
+        stage_numbers = None
+
+    try:
+        stages = get_stages(stage_numbers)
+    except ValueError as exc:
+        raise click.BadParameter(str(exc), param_hint="--stages") from exc
+
+    state = PipelineState.load(output_path)
+
+    total_processed = 0
+    total_failed = 0
+
+    for stage in stages:
+        if stage.should_skip(cfg):
+            click.echo(f"  Skipping stage {stage.number} ({stage.name}) [profile={profile}]")
+            continue
+
+        # Determine input directory: first stage reads from input_dir,
+        # subsequent stages read from the previous stage's checkpoint.
+        if stage.number == 0:
+            stage_input = input_path
+        else:
+            prev = _find_previous_checkpoint(stage.number, stages, output_path)
+            if prev is None:
+                click.echo(
+                    f"  Stage {stage.number} ({stage.name}): "
+                    f"no input checkpoint found, skipping",
+                    err=True,
+                )
+                continue
+            stage_input = prev
+
+        click.echo(f"  Running stage {stage.number} ({stage.name})...")
+
+        result = stage.run(stage_input, output_path, cfg, state)
+        state.record_result(result)
+        state.save()
+
+        total_processed += result.processed
+        total_failed += result.failed
+
+        click.echo(
+            f"    processed={result.processed} skipped={result.skipped} "
+            f"failed={result.failed} excluded={result.excluded}"
+        )
+
+    click.echo(f"Done. {total_processed} images processed, {total_failed} failures.")
+
+    if total_failed and on_error == "stop":
+        sys.exit(1)
+
+
+def _find_previous_checkpoint(
+    current_number: int,
+    stages: list,
+    output_path: Path,
+) -> Path | None:
+    """Find the checkpoint directory from the preceding stage.
+
+    Walks backward from *current_number* looking for an existing checkpoint
+    directory, regardless of whether that stage was in the current run.
+    """
+    from lpacleaner.stages import STAGE_BY_NUMBER
+
+    for n in range(current_number - 1, -1, -1):
+        cls = STAGE_BY_NUMBER.get(n)
+        if cls is None:
+            continue
+        candidate = output_path / cls.checkpoint_name
+        if candidate.is_dir() and any(candidate.iterdir()):
+            return candidate
+    return None
+
+
+def _configure_logging(verbose: bool, quiet: bool) -> None:
+    if verbose:
+        level = logging.DEBUG
+    elif quiet:
+        level = logging.WARNING
+    else:
+        level = logging.INFO
+    logging.basicConfig(
+        level=level,
+        format="%(levelname)s:%(name)s:%(message)s",
+        force=True,
+    )
 
 
 @main.command()

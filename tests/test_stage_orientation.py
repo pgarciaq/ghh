@@ -157,32 +157,51 @@ class TestOrientationProcessImage:
         assert "portrait_fallback" in meta["orientation_method"]
 
     def test_polarity_flips_upside_down_page(self):
-        """A music page with red title at the bottom (upside-down) gets flipped."""
+        """A page with red title at the bottom edge (upside-down) gets flipped."""
         from lpacleaner.stages.orientation import _correct_polarity
 
         img = np.full((400, 300, 3), (230, 220, 200), dtype=np.uint8)
-        # Scatter small red blocks in the bottom third (simulating
-        # title characters -- real text is narrow, not page-wide)
         red = (0, 0, 200)
+        # Place red title characters in the bottom 15% (y > 340)
         for x in range(50, 250, 20):
-            img[330:360, x:x + 12] = red
+            img[355:375, x : x + 12] = red
         cfg = Config(input_dir=Path("/tmp"), staff_color_hue=0, staff_color_range=15)
 
         result, did_flip = _correct_polarity(img, cfg)
         assert did_flip is True
 
     def test_polarity_keeps_right_side_up(self):
-        """A music page with red title at the top stays as-is."""
+        """A page with red title at the top edge stays as-is."""
         from lpacleaner.stages.orientation import _correct_polarity
 
         img = np.full((400, 300, 3), (230, 220, 200), dtype=np.uint8)
         red = (0, 0, 200)
+        # Place red title characters in the top 15% (y < 60)
         for x in range(50, 250, 20):
-            img[30:60, x:x + 12] = red
+            img[25:45, x : x + 12] = red
         cfg = Config(input_dir=Path("/tmp"), staff_color_hue=0, staff_color_range=15)
 
         result, did_flip = _correct_polarity(img, cfg)
         assert did_flip is False
+
+    def test_polarity_ignores_body_rubrics_with_dark_text(self):
+        """Red rubrics mixed with dark text in the body don't fool polarity."""
+        from lpacleaner.stages.orientation import _correct_polarity
+
+        img = np.full((400, 300, 3), (230, 220, 200), dtype=np.uint8)
+        red = (0, 0, 200)
+        dark = (30, 30, 30)
+        # Red title in the top edge
+        for x in range(50, 250, 20):
+            img[25:45, x : x + 12] = red
+        # Red rubrics mixed with dark text in the bottom edge
+        for x in range(50, 250, 40):
+            img[360:375, x : x + 8] = red
+            img[360:375, x + 10 : x + 30] = dark
+        cfg = Config(input_dir=Path("/tmp"), staff_color_hue=0, staff_color_range=15)
+
+        result, did_flip = _correct_polarity(img, cfg)
+        assert did_flip is False, "Body rubrics with dark text should be ignored"
 
     def test_computes_focus_score(self):
         from lpacleaner.stages.orientation import OrientationStage
