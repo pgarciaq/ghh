@@ -651,7 +651,10 @@ function buildTabs() {
 
 function setStage(i) {
   stgIdx = Math.max(0, Math.min(i, STAGES.length - 1));
-  if (isSide) sideRight = stgIdx;
+  if (isSide) {
+    sideRight = stgIdx;
+    sideLeft = Math.max(0, stgIdx - 1);
+  }
   buildTabs();
   render();
   updateMeta();
