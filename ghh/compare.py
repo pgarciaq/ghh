@@ -527,7 +527,7 @@ header {
 /* --- Footer --- */
 footer {
   background: __T_HEADER__; padding: 4px 16px;
-  font-size: 11px; color: #666;
+  font-size: 11px; color: #aaa;
   border-top: 1px solid __T_HBORDER__; flex-shrink: 0;
 }
 footer kbd {
@@ -651,6 +651,7 @@ function buildTabs() {
 
 function setStage(i) {
   stgIdx = Math.max(0, Math.min(i, STAGES.length - 1));
+  if (isSide) sideRight = stgIdx;
   buildTabs();
   render();
   updateMeta();
@@ -748,23 +749,19 @@ function toggleZoom() { isZoomed = !isZoomed; render(); }
 $sideToggle.addEventListener("change", () => {
   isSide = $sideToggle.checked;
   if (isSide) {
+    sideLeft = Math.max(0, stgIdx - 1);
+    sideRight = stgIdx;
     isMeta = false;
     $metaToggle.checked = false;
     $metaPanel.classList.remove("open");
   }
   render();
+  $sideToggle.blur();
 });
 $metaToggle.addEventListener("change", () => {
   isMeta = $metaToggle.checked;
   $metaPanel.classList.toggle("open", isMeta);
-});
-
-$sideToggle.addEventListener("change", () => {
-  isSide = $sideToggle.checked; render();
-});
-$metaToggle.addEventListener("change", () => {
-  isMeta = $metaToggle.checked;
-  $metaPanel.classList.toggle("open", isMeta);
+  $metaToggle.blur();
 });
 
 /* --- Keyboard --- */
