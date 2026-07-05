@@ -88,6 +88,14 @@ class Config:
     no_stitch_images: list[str] | None = None
     include_covers: bool = False
 
+    # Page detection (Stage 4)
+    page_detect_method: str = "auto"
+    page_detect_morph_kernel: int = 50
+    page_detect_epsilon: float = 0.02
+    page_detect_min_area_frac: float = 0.30
+    page_detect_padding: int = 10
+    page_detect_expand_frac: float = 0.03
+
     # Photography / condition
     has_flash_hotspots: bool = False
     fingers_detected: bool = False
@@ -233,6 +241,15 @@ class Config:
         _map_if_present(kwargs, overrides_section, "exclude", "exclude_images")
         _map_if_present(kwargs, overrides_section, "no_stitch", "no_stitch_images")
         _map_if_present(kwargs, overrides_section, "include_covers", "include_covers")
+
+        # [page_detect] section
+        page_detect = toml_data.get("page_detect", {})
+        _map_if_present(kwargs, page_detect, "method", "page_detect_method")
+        _map_if_present(kwargs, page_detect, "morph_kernel", "page_detect_morph_kernel")
+        _map_if_present(kwargs, page_detect, "epsilon", "page_detect_epsilon")
+        _map_if_present(kwargs, page_detect, "min_area_frac", "page_detect_min_area_frac")
+        _map_if_present(kwargs, page_detect, "padding", "page_detect_padding")
+        _map_if_present(kwargs, page_detect, "expand_frac", "page_detect_expand_frac")
 
         # [photography] section
         photography = toml_data.get("photography", {})

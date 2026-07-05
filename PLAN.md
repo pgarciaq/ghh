@@ -48,7 +48,7 @@ physical condition (coastal preservation, humidity damage, aging).
 | 9 | stages/analyze.py | **Done** | 18 tests | |
 | 10 | Stage 2 (orientation) | **Done** | 31 tests | OSD + adaptive OSD + title + spine cascade; 224/224 on LPA-1 |
 | 11 | Stage 3 (lens correct) | **Done** | 22 tests | Optional; skips when k1=k2=0; `cv2.undistort` with `max(w,h)` focal length |
-| 12 | Stage 4 (page detect) | Pending | | |
+| 12 | Stage 4 (page detect) | **Done** | 30 tests | Otsu→inverted Otsu→Canny→adaptive→full-image fallback; ink-aware classification; detect-only (no crop), quad in sidecar |
 | 13 | Stage 5 (perspective) | Pending | | |
 | 14 | Stage 6 (content area) | Pending | | |
 | 15 | Stage 8 (deskew) | Pending | | |
@@ -769,78 +769,84 @@ error_class = "skippable"
 
 ---
 
-## Stage 4: Page Detection and Cropping (`page_detect.py`)
+## Stage 4: Page Detection and Cropping (`page_detect.py`) ✅
 
-### Algorithm
+### Algorithm (implemented)
 
 ```
-1. Primary method (Otsu):
-   a. Convert to grayscale
-   b. Otsu threshold -> binary mask
-   c. Morphological close with 50x50 rect kernel
-   d. findContours(RETR_EXTERNAL, CHAIN_APPROX_SIMPLE)
-   e. Sort by area descending, take largest
-   f. approxPolyDP(contour, epsilon=0.02*perimeter, closed=True)
-   g. If result has 4 vertices -> page quad found
+1. Detection cascade (auto mode tries each in order):
+   a. Otsu threshold (light page on dark background):
+      · grayscale → Otsu → morph close (50×50) → findContours
+      · Largest contour must be 30%–99.5% of image area
+   b. Inverted Otsu (dark page on light background):
+      · Same as (a) with THRESH_BINARY_INV
+   c. Canny edge detection:
+      · Canny(30,100) → dilate(5×5,3) → morph close → findContours
+   d. Adaptive threshold:
+      · adaptiveThreshold(Gaussian, block=51, C=10) → invert → morph close
+   e. Full-image fallback:
+      · Entire image treated as the page (always succeeds)
 
-2. R2 Fallback chain (if contour area < 30% or > 99% of image):
-   a. Try inverted Otsu (light background, dark page)
-   b. Try Canny edge detection + findContours
-   c. Try adaptive threshold (handles mixed lighting)
-   d. Last resort: GrabCut with center 80% rectangle, or full image
+2. Quad refinement (from largest contour):
+   a. approxPolyDP with escalating epsilon [0.02, 0.03 .. 0.08]
+   b. If no epsilon yields 4 vertices: convexHull → try again
+   c. Last resort: minAreaRect → boxPoints
+   d. order_corners (TL, TR, BR, BL via sum/difference)
 
-3. Quad refinement:
-   a. If not 4 vertices: convex hull, try epsilon [0.02..0.08]
-   b. Fallback: minAreaRect -> boxPoints
-   c. Order corners as [TL, TR, BR, BL] via sum/difference method
+3. Quad expansion:
+   a. Push each corner outward from centroid by page_detect_expand_frac × avg edge length
+   b. Clamp to image bounds
+   c. Compensates for Otsu contours that sit inside the actual page boundary
 
-4. Spread detection (see K7):
-   a. If detected quad aspect ratio width/height > 1.5: suspect spread
-   b. Look for vertical luminance valley or edge near center
-   c. If confirmed: split into two page quads (left, right)
-   d. Process each half as a separate image for all subsequent stages
+4. Pass-through (no crop):
+   a. Full image passes through unchanged
+   b. Quad corners stored in metadata sidecar for Stage 5
+   c. Cropping deferred to Stage 5 (perspective correction), which inherently
+      crops via warpPerspective — downstream stages (dewarp, deskew) need full
+      page context including edges
 
-5. Page type classification (see K4):
-   a. Run detect_ink_mask on cropped page
-   b. Count staff line candidates via HoughLinesP
-   c. Classify as "music", "text", "decorative", "blank", or "damaged"
-   d. Record in metadata (used by downstream stages to select algorithms)
-   Note: runs on lens-corrected but not yet perspective-corrected image.
-   The trapezoid shape slightly reduces staff line count accuracy, but
-   the classification only needs "has staff lines? yes/no" which is
-   robust to moderate perspective distortion.
+5. Page type classification:
+   a. detect_staff_lines() on quad ROI (ink-color-aware, not generic edge detection)
+   b. ≥ 4 staff lines → "music"
+   c. Low variance + bright mean → "blank"
+   d. Otherwise → "text" or "other"
 
-6. Store quad corners and page type in metadata JSON
+6. Metadata sidecar:
+   stage, method, page_type, quad_corners
 ```
 
-### Corner Ordering (`geometry.py`)
+### Deferred features
+
+- **Spread detection (K7)**: Not yet implemented.  Will be added when
+  the dataset contains two-page spreads that need splitting.
+- **GrabCut fallback**: Removed from cascade; the existing four methods
+  plus the full-image fallback cover all observed cases.
+
+### Stage attributes
 
 ```python
-def order_corners(pts: np.ndarray) -> np.ndarray:
-    """Order 4 points as [TL, TR, BR, BL]."""
-    s = pts.sum(axis=1)
-    d = np.diff(pts, axis=1).ravel()
-    return np.array([
-        pts[np.argmin(s)],   # top-left: smallest x+y
-        pts[np.argmin(d)],   # top-right: smallest x-y
-        pts[np.argmax(s)],   # bottom-right: largest x+y
-        pts[np.argmax(d)],   # bottom-left: largest x-y
-    ], dtype=np.float32)
+name = "page_detect"
+number = 4
+checkpoint_name = "04_page_detected"
+error_class = "skippable"
 ```
 
-### Parameters
+### Parameters (Config)
 
 ```python
-page_detect_method: str = "auto"       # "auto", "otsu", "otsu_inverted", "canny", "grabcut"
+page_detect_method: str = "auto"       # "auto", "otsu", "otsu_inverted", "canny", "adaptive"
 page_detect_morph_kernel: int = 50
 page_detect_epsilon: float = 0.02
-page_detect_min_area_frac: float = 0.3
+page_detect_min_area_frac: float = 0.30
+page_detect_padding: int = 10          # reserved for future use
+page_detect_expand_frac: float = 0.03  # fraction of avg edge length to expand quad outward
 ```
 
 ### Input/Output
 
 - Input: image from `03_lens_corrected/` (or `02_oriented/` if lens correction skipped)
-- Output: cropped image + `corners.json` in `04_cropped/`
+- Output: **full image unchanged** in `04_page_detected/`, metadata sidecar with quad corners
+- Stage 5 reads the quad corners from the sidecar to apply perspective correction (and crop)
 
 ---
 
@@ -866,8 +872,8 @@ being confused by black corners.
 
 ### Input/Output
 
-- Input: cropped image + corners from `04_cropped/`
-- Output: rectangular image in `05_perspective/`
+- Input: full image + quad corners from `04_page_detected/`
+- Output: rectangular image in `05_perspective/` (this is where the actual crop happens)
 
 ---
 
@@ -2893,7 +2899,7 @@ on synthetic images:
 10. ~~**Stage 2** (orientation)~~: ✅ content-based axis detection (HoughLinesP) + staff-area validation + cascading polarity (Tesseract OSD standard + adaptive, red title edges, spine S/V) + focus QA (31 tests, 224/224 on LPA-1)
 11. ~~**Real image smoke test**~~: ✅ Stages 0-1-2 on full LPA-1 set (225 images), visual inspection confirmed 224/224 correct orientation
 12. ~~**Stage 3** (lens correct, optional)~~: ✅ radial distortion correction (R7) via `cv2.undistort`, auto-skip when k1=k2=0, `max(w,h)` focal length (22 tests)
-13. **Stage 4** (page detect): Otsu + fallback chain (R2), page type classification
+13. ~~**Stage 4** (page detect)~~: ✅ Otsu→inverted Otsu→Canny→adaptive→full-image cascade, quad refinement with escalating epsilon, ink-aware page classification, bounding-box crop (27 tests)
 14. **Stage 5** (perspective): homography from quad corners, background fill
 15. **Stage 6** (content area): border detection, edge masking, margins
 16. **Stage 8** (deskew): staff angle or projection profile, post-geometry trim
