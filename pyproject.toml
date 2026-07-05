@@ -41,6 +41,9 @@ ghh = "ghh.cli:main"
 [tool.setuptools.packages.find]
 where = ["."]
 
+[tool.setuptools.package-data]
+ghh = ["vendor/*.js"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [

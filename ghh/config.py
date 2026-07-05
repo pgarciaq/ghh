@@ -112,6 +112,11 @@ class Config:
     pdf_jpeg_quality: int = 90
     pdf_dpi: int = 300
 
+    # Flipbook
+    flipbook_max_width: int = 1600
+    flipbook_jpeg_quality: int = 85
+    flipbook_title: str = ""
+
     # Photography / condition
     has_flash_hotspots: bool = False
     fingers_detected: bool = False
@@ -287,6 +292,12 @@ class Config:
         _map_if_present(kwargs, pdf, "dpi", "pdf_dpi")
         if "pdf_compression" in kwargs:
             kwargs["pdf_compression"] = str(kwargs["pdf_compression"]).lower()
+
+        # [flipbook] section
+        flipbook = toml_data.get("flipbook", {})
+        _map_if_present(kwargs, flipbook, "max_width", "flipbook_max_width")
+        _map_if_present(kwargs, flipbook, "jpeg_quality", "flipbook_jpeg_quality")
+        _map_if_present(kwargs, flipbook, "title", "flipbook_title")
 
         # [photography] section
         photography = toml_data.get("photography", {})

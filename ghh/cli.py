@@ -267,14 +267,22 @@ def compare(output_dir, image_stem, input_dir, no_open):
               help="JPEG compression quality (default: 85)")
 @click.option("--stages", "stage_spec", type=str, default=None,
               help="Comma-separated stage numbers to include (e.g. '0,5,7')")
+@click.option("--with-flipbook", is_flag=True, help="Include flipbook viewer")
+@click.option("--with-pdf", is_flag=True,
+              help="Include PDF download in flipbook (implies --with-flipbook)")
 @click.option("--no-open", is_flag=True, help="Don't open the browser automatically")
-def publish(output_dir, publish_dir, input_dir, max_dim, quality, stage_spec, no_open):
+def publish(output_dir, publish_dir, input_dir, max_dim, quality, stage_spec,
+            with_flipbook, with_pdf, no_open):
     """Publish a web-friendly comparison site with downscaled JPEGs.
 
     Converts all pipeline stage images to downscaled JPEGs and writes
     them to PUBLISH_DIR alongside an index.html viewer.  The result
     is a self-contained directory ready for static web hosting
     (GitHub Pages, Netlify, S3, etc.).
+
+    Use --with-flipbook to also generate a flipbook viewer in a
+    flipbook/ subdirectory.  --with-pdf implies --with-flipbook and
+    adds a PDF download link.
     """
     from ghh.compare import infer_input_dir, publish_book
 
@@ -301,6 +309,26 @@ def publish(output_dir, publish_dir, input_dir, max_dim, quality, stage_spec, no
     )
     click.echo(f"Published to {html_path.parent}")
 
+    if with_pdf:
+        with_flipbook = True
+
+    if with_flipbook:
+        from ghh.flipbook import generate_flipbook
+
+        fb_dir = Path(publish_dir) / "flipbook"
+        click.echo("Generating flipbook...")
+        try:
+            fb_index = generate_flipbook(
+                output_path,
+                fb_dir,
+                max_width=1600,
+                jpeg_quality=quality,
+                include_pdf=with_pdf,
+            )
+            click.echo(f"Flipbook added: {fb_index.parent}")
+        except FileNotFoundError as exc:
+            click.echo(f"Warning: {exc}", err=True)
+
     if not no_open:
         import webbrowser
         webbrowser.open(f"file://{html_path.resolve()}")
@@ -312,3 +340,51 @@ def publish(output_dir, publish_dir, input_dir, max_dim, quality, stage_spec, no
 def cleanup_cmd(output_dir, keep):
     """Delete intermediate checkpoint directories."""
     click.echo(f"Cleaning up {output_dir}...")
+
+
+@main.command()
+@click.argument("output_dir", type=click.Path(exists=True, file_okay=False))
+@click.argument("flipbook_dir", type=click.Path(file_okay=False), required=False, default=None)
+@click.option("--input-dir", type=click.Path(exists=True, file_okay=False), default=None,
+              help="Original input directory (unused, kept for consistency)")
+@click.option("--max-width", type=int, default=1600,
+              help="Max page width in pixels (default: 1600)")
+@click.option("--quality", type=int, default=85,
+              help="JPEG compression quality (default: 85)")
+@click.option("--title", type=str, default="",
+              help="Title displayed in the flipbook viewer")
+@click.option("--no-pdf", is_flag=True, help="Omit PDF download link")
+@click.option("--no-open", is_flag=True, help="Don't open the browser automatically")
+def flipbook(output_dir, flipbook_dir, input_dir, max_width, quality, title, no_pdf, no_open):
+    """Generate a static HTML flipbook from processed pages.
+
+    Reads images from the latest completed pipeline checkpoint in
+    OUTPUT_DIR and generates a self-contained flipbook with page-turning
+    animation.  The result can be uploaded to any static hosting.
+
+    If FLIPBOOK_DIR is not specified, defaults to OUTPUT_DIR/flipbook/.
+    """
+    from ghh.flipbook import generate_flipbook
+
+    output_path = Path(output_dir)
+    fb_path = Path(flipbook_dir) if flipbook_dir else None
+
+    click.echo("Generating flipbook...")
+    try:
+        index_path = generate_flipbook(
+            output_path,
+            fb_path,
+            max_width=max_width,
+            jpeg_quality=quality,
+            title=title,
+            include_pdf=not no_pdf,
+        )
+    except FileNotFoundError as exc:
+        click.echo(str(exc), err=True)
+        sys.exit(1)
+
+    click.echo(f"Flipbook generated: {index_path.parent}")
+
+    if not no_open:
+        import webbrowser
+        webbrowser.open(f"file://{index_path.resolve()}")

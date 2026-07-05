@@ -57,14 +57,14 @@ physical condition (coastal preservation, humidity damage, aging).
 | 18 | Stage 10 (normalize) | Pending | | |
 | 19 | Stage 11 (OCR) | Pending | | |
 | 20 | Stage 12 (PDF assembly) | **Done** | 35 tests | img2pdf; JPEG/PNG compression; case-insensitive; DPI layout; resume; exclude; 224-page LPA-1 PDF (311.9 MB) |
-| 21 | Stage 13 (flipbook export) | Pending | | |
+| 21 | `flipbook` CLI command | **Done** | 32 tests | StPageFlip HTML flipbook; vendored JS; PDF download; --with-flipbook/--with-pdf on publish |
 | 22 | `compare` CLI command | **Done** | 26 tests | Full-book HTML viewer; PgUp/PgDn image nav; side-by-side; auto-generated after `run`; dark blue theme |
 | 23 | `publish` CLI command | **Done** | 16 tests | Self-contained JPEG site for web hosting; warm amber theme; stage filter; timestamped badge |
 | 24 | Pipeline orchestrator | Pending | | |
 | 25 | CLI polish | Pending | | |
 | 26 | Integration tests | Pending | | |
 
-**Totals:** 480 tests, all green.
+**Totals:** 512 tests, all green.
 
 ---
 
@@ -127,7 +127,6 @@ ghh/
       normalize.py          # Stage 10: cross-page color + DPI normalization
       ocr.py                # Stage 11: Tesseract/Kraken OCR
       pdf_assembly.py       # Stage 12: searchable PDF assembly
-      flipbook_export.py    # Stage 13: static HTML flipbook for web publishing
     utils/
       __init__.py
       line_detect.py        # Generic ink detection, staff line detection, foxing filter (R9)
@@ -138,6 +137,11 @@ ghh/
       preprocess.py         # Flash hotspot removal (R1), finger detection (R8)
       page_find.py          # Simplified page quad detection (Otsu + largest contour)
       stats.py              # Median-based statistics, MAD outlier rejection
+    vendor/
+      __init__.py
+      page-flip.browser.js  # Vendored StPageFlip (MIT, v2.0.7, ~43 KB)
+    flipbook.py             # Flipbook generation (standalone CLI command)
+    compare.py              # Compare/publish HTML viewers
 ```
 
 ## Checkpoint Directory Layout
@@ -158,7 +162,7 @@ output/
   10_normalized/             IMG_0011.jpg, ...   (cross-page color + DPI matched)
   11_ocr/                    IMG_0011.hocr, ...  (hOCR XML files)
   12_pdf/                    output.pdf, output.pdf.json
-  13_flipbook/               index.html, pages/, page-flip.browser.js
+  flipbook/                  index.html, pages/, page-flip.browser.js, flipbook.json
   pipeline.json                                  (stage status, parameters used)
   ghh.log                                 (detailed log, always verbose)
 ```
@@ -1368,12 +1372,15 @@ dpi = 300
 
 ---
 
-## Stage 13: Flipbook Export (`flipbook_export.py`)
+## Flipbook Command (`ghh flipbook`)
 
 Generates a self-contained static HTML flipbook from the processed images,
 suitable for publishing on a website. The output is a directory that can be
 uploaded to any static hosting (GitHub Pages, Netlify, a parish website, etc.)
 without server-side dependencies.
+
+This is a **standalone CLI command** (not a pipeline stage), similar to
+`ghh compare` and `ghh publish`.
 
 ### Algorithm
 
@@ -1422,11 +1429,12 @@ title = "LPA 1 - San Nicolás"
 
 ### Input/Output
 
-- Input: images from latest completed image stage checkpoint
-- Output: `flipbook/` directory containing:
+- Input: images from latest completed image stage checkpoint (walks backward)
+- Output: `flipbook/` directory (or custom FLIPBOOK_DIR) containing:
   - `index.html` (self-contained viewer)
-  - `pages/` (resized JPEG images)
+  - `pages/` (resized JPEG images, numbered 001.jpg, 002.jpg, ...)
   - `page-flip.browser.js` (vendored library)
+  - `book.pdf` (optional, copied from 12_pdf/ unless --no-pdf)
   - `flipbook.json` (sidecar metadata)
 
 ### Library choice: StPageFlip (`page-flip`)
@@ -1452,18 +1460,24 @@ title = "LPA 1 - San Nicolás"
 ### CLI integration
 
 ```bash
-ghh flipbook INPUT_DIR -o OUTPUT_DIR    # standalone command
-ghh run INPUT_DIR --stages 0-6,13       # or as part of pipeline
+ghh flipbook OUTPUT_DIR [FLIPBOOK_DIR]       # standalone command
+ghh flipbook OUTPUT_DIR --no-pdf             # omit PDF download link
+ghh flipbook OUTPUT_DIR --max-width 800      # smaller images for mobile
+ghh publish OUTPUT_DIR DIR --with-flipbook   # include flipbook in published site
+ghh publish OUTPUT_DIR DIR --with-pdf        # include flipbook + PDF download
 ```
 
 ### Design notes
 
-- Like Stage 12, this stage subclasses `BaseStage` but overrides `run()`
-  entirely (batch output, not per-image checkpoints).
-- The `page-flip.browser.js` file is vendored into the package to avoid
-  requiring npm/node at runtime. Updated periodically.
+- This is a standalone CLI command, not a pipeline stage. It does not subclass
+  `BaseStage` and is not registered in `stages/__init__.py`.
+- The `page-flip.browser.js` file is vendored into the package (`ghh/vendor/`)
+  to avoid requiring npm/node at runtime. Updated periodically.
 - The generated flipbook is fully static -- no server, no build step, no
   Node.js required to view it. Just open `index.html` in a browser.
+- `ghh publish --with-flipbook` generates the flipbook into `PUBLISH_DIR/flipbook/`.
+  `--with-pdf` implies `--with-flipbook` and copies the PDF for download.
+- PDF is sourced from `12_pdf/output.pdf`; if absent, the link is silently omitted.
 
 ---
 
@@ -3243,7 +3257,7 @@ on synthetic images:
 19. **Stage 10** (normalize): cross-page color + DPI (global pass, batch stage)
 20. **Stage 11** (OCR): Tesseract integration, graceful skip if missing, Kraken optional
 21. ~~**Stage 12** (PDF)~~: ✅ img2pdf assembly, JPEG/PNG compression, case-insensitive config, DPI layout, resume, exclude (35 tests)
-22. **Stage 13** (flipbook): static HTML flipbook export with StPageFlip, web-optimized images (batch stage)
+22. ~~**`ghh flipbook`**~~: ✅ StPageFlip HTML flipbook; vendored JS; PDF download; --with-flipbook/--with-pdf on publish (32 tests)
 23. **pipeline.py**: orchestrator -- chain stages, progress reporting, end-of-run summary
 24. **CLI polish**: tqdm progress bars, `inspect` + `review` commands, error handling UX
 25. **Integration tests**: full-pipeline tests, CLI tests, output validation
