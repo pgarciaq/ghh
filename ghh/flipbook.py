@@ -51,7 +51,7 @@ def _find_source_images(output_dir: Path) -> list[Path]:
     return []
 
 
-def _find_pdf(output_dir: Path) -> Path | None:
+def find_pdf(output_dir: Path) -> Path | None:
     """Find the PDF in the output directory (produced by Stage 12)."""
     for f in output_dir.iterdir():
         if f.is_file() and f.suffix.lower() == ".pdf":
@@ -135,7 +135,7 @@ def generate_flipbook(
 
     pdf_filename: str | None = None
     if include_pdf:
-        pdf_src = _find_pdf(output_dir)
+        pdf_src = find_pdf(output_dir)
         if pdf_src is not None:
             pdf_filename = pdf_src.name
             shutil.copy2(pdf_src, flipbook_dir / pdf_filename)

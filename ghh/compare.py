@@ -191,6 +191,7 @@ def publish_book(
     max_dim: int = 1500,
     quality: int = 85,
     stage_filter: set[str] | None = None,
+    extra_links: str = "",
 ) -> Path:
     """Publish a self-contained comparison site with downscaled JPEGs.
 
@@ -257,7 +258,7 @@ def publish_book(
     if title.endswith("_output"):
         title = title[:-7]
 
-    html = _render_html(book_js, title, 0, mode="publish")
+    html = _render_html(book_js, title, 0, mode="publish", extra_links=extra_links)
 
     html_path = publish_dir / "index.html"
     html_path.write_text(html)
@@ -361,6 +362,7 @@ def _render_html(
     title: str,
     initial_idx: int,
     mode: str,
+    extra_links: str = "",
 ) -> str:
     """Fill the HTML template with data and the appropriate theme."""
     theme = _THEME_PUBLISH if mode == "publish" else _THEME_COMPARE
@@ -376,6 +378,7 @@ def _render_html(
     html = html.replace("__TITLE__", title)
     html = html.replace("__INITIAL_IDX__", str(initial_idx))
     html = html.replace("__MODE_BADGE__", badge)
+    html = html.replace("__EXTRA_LINKS__", extra_links)
     for key, val in theme.items():
         html = html.replace(f"__T_{key.upper()}__", val)
     return html
@@ -432,6 +435,14 @@ body {
   padding: 3px 6px; border-radius: 4px; font-size: 12px;
   max-width: 180px;
 }
+.extra-link {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 10px; font-size: 12px; text-decoration: none;
+  border-radius: 3px; margin-left: 4px;
+  background: __T_BTNBG__; color: __T_ACCENT__;
+  border: 1px solid __T_BTNBDR__;
+}
+.extra-link:hover { opacity: 0.85; }
 
 /* --- Stage tabs --- */
 header {
@@ -450,6 +461,18 @@ header {
 .tab:hover { background: __T_TABBDR__; color: #fff; }
 .tab.active {
   background: __T_ACTIVE__; color: #fff; border-color: __T_ACTIVE__;
+}
+.tab.active-left {
+  background: #1a6b5a; color: #fff; border-color: #1a6b5a;
+  box-shadow: inset 0 -3px 0 #4dd0b8;
+}
+.tab.active-right {
+  background: #6b4a1a; color: #fff; border-color: #6b4a1a;
+  box-shadow: inset 0 -3px 0 #e6a040;
+}
+.tab.active-both {
+  background: #4a4a4a; color: #fff; border-color: #4a4a4a;
+  box-shadow: inset 3px -3px 0 #4dd0b8, inset -3px -3px 0 #e6a040;
 }
 .tab.missing { opacity: 0.3; cursor: default; }
 .controls {
@@ -485,18 +508,26 @@ header {
   min-height: 0;
 }
 .view-side .pane:last-child { border-right: none; }
-.pane-header {
-  background: __T_HEADER__; padding: 4px 8px; font-size: 12px;
-  font-weight: 600; text-align: center;
-  border-bottom: 1px solid #333;
-  display: flex; gap: 3px; justify-content: center; flex-wrap: wrap;
-  flex-shrink: 0;
-}
-.pane-header .tab { padding: 2px 8px; font-size: 11px; }
 .pane-body {
   flex: 1; min-height: 0;
   display: flex; justify-content: center; align-items: center;
   padding: 8px;
+}
+.pane-label {
+  position: absolute; top: 8px; padding: 3px 10px; font-size: 11px;
+  font-weight: 600; border-radius: 3px; z-index: 5;
+  pointer-events: none; opacity: 0.9;
+}
+.pane-label-left {
+  left: 8px; background: rgba(26,107,90,0.85); color: #4dd0b8;
+  border: 1px solid #4dd0b8;
+}
+.pane-label-right {
+  right: 8px; background: rgba(107,74,26,0.85); color: #e6a040;
+  border: 1px solid #e6a040;
+}
+.pane-body {
+  position: relative;
 }
 .pane-body img {
   max-width: 100%; max-height: 100%; object-fit: contain;
@@ -545,6 +576,7 @@ footer kbd {
   <span class="img-counter" id="imgCounter"></span>
   <button class="nav-btn" id="nextImg">Next &raquo;</button>
   <select class="img-select" id="imgSelect"></select>
+  __EXTRA_LINKS__
 </div>
 
 <header>
@@ -566,7 +598,7 @@ footer kbd {
   <pre id="metaContent"></pre>
 </div>
 
-<footer>
+<footer id="footer">
   <kbd>PgUp</kbd> <kbd>PgDn</kbd> prev/next image &nbsp;
   <kbd>\u2190</kbd> <kbd>\u2192</kbd> prev/next stage &nbsp;
   <kbd>S</kbd> side-by-side &nbsp;
@@ -633,6 +665,23 @@ function stg(si) {
   return s || null;
 }
 
+const FOOTER_SINGLE =
+  '<kbd>PgUp</kbd> <kbd>PgDn</kbd> prev/next image &nbsp;' +
+  '<kbd>\u2190</kbd> <kbd>\u2192</kbd> prev/next stage &nbsp;' +
+  '<kbd>S</kbd> side-by-side &nbsp;' +
+  '<kbd>M</kbd> metadata &nbsp;' +
+  '<kbd>Z</kbd> zoom &nbsp;' +
+  '<kbd>1</kbd>\u2013<kbd>9</kbd> jump to stage';
+const FOOTER_SIDE =
+  '<kbd>PgUp</kbd> <kbd>PgDn</kbd> prev/next image &nbsp;' +
+  '<kbd>\u2190</kbd> <kbd>\u2192</kbd> left pane stage &nbsp;' +
+  '<kbd>Shift+\u2190</kbd> <kbd>Shift+\u2192</kbd> right pane stage &nbsp;' +
+  '<kbd>S</kbd> side-by-side &nbsp;' +
+  '<kbd>Z</kbd> zoom &nbsp;' +
+  '<kbd>1</kbd>\u2013<kbd>9</kbd> left pane &nbsp;' +
+  '<kbd>Shift+1</kbd>\u2013<kbd>9</kbd> right pane';
+const $footer = $("footer");
+
 /* --- Stage tabs --- */
 function buildTabs() {
   $tabs.innerHTML = "";
@@ -640,21 +689,49 @@ function buildTabs() {
     const t = document.createElement("div");
     const exists = stg(i) !== null;
     let cls = "tab";
-    if (i === stgIdx) cls += " active";
+    if (isSide) {
+      const isL = i === sideLeft;
+      const isR = i === sideRight;
+      if (isL && isR) cls += " active-both";
+      else if (isL) cls += " active-left";
+      else if (isR) cls += " active-right";
+    } else {
+      if (i === stgIdx) cls += " active";
+    }
     if (!exists) cls += " missing";
     t.className = cls;
     t.textContent = label;
-    if (exists) t.onclick = () => setStage(i);
+    if (exists) {
+      t.addEventListener("click", (ev) => {
+        if (isSide) {
+          if (ev.shiftKey) { setSideRight(i); }
+          else { setSideLeft(i); }
+        } else {
+          setStage(i);
+        }
+      });
+    }
     $tabs.appendChild(t);
   });
 }
 
 function setStage(i) {
   stgIdx = Math.max(0, Math.min(i, STAGES.length - 1));
-  if (isSide) {
-    sideRight = stgIdx;
-    sideLeft = Math.max(0, stgIdx - 1);
-  }
+  buildTabs();
+  render();
+  updateMeta();
+}
+
+function setSideLeft(i) {
+  sideLeft = Math.max(0, Math.min(i, STAGES.length - 1));
+  stgIdx = sideLeft;
+  buildTabs();
+  render();
+  updateMeta();
+}
+
+function setSideRight(i) {
+  sideRight = Math.max(0, Math.min(i, STAGES.length - 1));
   buildTabs();
   render();
   updateMeta();
@@ -685,40 +762,19 @@ function renderSide() {
     sideRight = Math.min(1, STAGES.length - 1);
 
   function pane(idx, side) {
-    let hdr = "";
-    STAGES.forEach((label, i) => {
-      const exists = stg(i) !== null;
-      let cls = "tab";
-      if (i === idx) cls += " active";
-      if (!exists) cls += " missing";
-      hdr += '<div class="' + cls + '"' +
-        (exists ? ' data-side="' + side +
-        '" data-idx="' + i + '"' : "") +
-        ">" + label + "</div>";
-    });
+    const labelCls = "pane-label pane-label-" + side;
+    const prefix = side === "left" ? "L" : "R";
+    const labelText = prefix + ": " + STAGES[idx];
     return '<div class="pane">' +
-      '<div class="pane-header">' + hdr + "</div>" +
-      '<div class="pane-body">' + imgTag(idx) +
+      '<div class="pane-body">' +
+      '<span class="' + labelCls + '">' + labelText + '</span>' +
+      imgTag(idx) +
       "</div></div>";
   }
 
   $main.innerHTML = '<div class="view-side">' +
     pane(sideLeft, "left") + pane(sideRight, "right") +
     "</div>";
-
-  $main.querySelectorAll(".pane-header .tab[data-idx]")
-    .forEach(t => {
-      t.addEventListener("click", () => {
-        const side = t.dataset.side;
-        const idx = parseInt(t.dataset.idx);
-        if (side === "left") sideLeft = idx;
-        else sideRight = idx;
-        stgIdx = idx;
-        buildTabs();
-        renderSide();
-        updateMeta();
-      });
-    });
 }
 
 function updateMeta() {
@@ -740,6 +796,8 @@ function toggleSide() {
     $metaToggle.checked = false;
     $metaPanel.classList.remove("open");
   }
+  updateFooter();
+  buildTabs();
   render();
 }
 function toggleMeta() {
@@ -748,6 +806,10 @@ function toggleMeta() {
   $metaPanel.classList.toggle("open", isMeta);
 }
 function toggleZoom() { isZoomed = !isZoomed; render(); }
+
+function updateFooter() {
+  $footer.innerHTML = isSide ? FOOTER_SIDE : FOOTER_SINGLE;
+}
 
 $sideToggle.addEventListener("change", () => {
   isSide = $sideToggle.checked;
@@ -758,6 +820,8 @@ $sideToggle.addEventListener("change", () => {
     $metaToggle.checked = false;
     $metaPanel.classList.remove("open");
   }
+  updateFooter();
+  buildTabs();
   render();
   $sideToggle.blur();
 });
@@ -773,22 +837,41 @@ document.addEventListener("keydown", (e) => {
   if (tag === "SELECT" || tag === "INPUT") return;
 
   if (e.key === "ArrowLeft") {
-    setStage(stgIdx - 1); e.preventDefault();
+    e.preventDefault();
+    if (isSide) {
+      if (e.shiftKey) setSideRight(sideRight - 1);
+      else setSideLeft(sideLeft - 1);
+    } else { setStage(stgIdx - 1); }
   } else if (e.key === "ArrowRight") {
-    setStage(stgIdx + 1); e.preventDefault();
+    e.preventDefault();
+    if (isSide) {
+      if (e.shiftKey) setSideRight(sideRight + 1);
+      else setSideLeft(sideLeft + 1);
+    } else { setStage(stgIdx + 1); }
   } else if (e.key === "PageUp") {
-    stgIdx = 0; setImage(imgIdx - 1); e.preventDefault();
+    e.preventDefault();
+    stgIdx = 0; sideLeft = 0; sideRight = Math.min(1, STAGES.length - 1);
+    setImage(imgIdx - 1);
   } else if (e.key === "PageDown") {
-    stgIdx = 0; setImage(imgIdx + 1); e.preventDefault();
-  } else if (e.key === "s" || e.key === "S") {
+    e.preventDefault();
+    stgIdx = 0; sideLeft = 0; sideRight = Math.min(1, STAGES.length - 1);
+    setImage(imgIdx + 1);
+  } else if (e.key === "s" && !e.shiftKey) {
     toggleSide();
-  } else if (e.key === "m" || e.key === "M") {
+  } else if ((e.key === "m" || e.key === "M") && !e.shiftKey) {
     toggleMeta();
-  } else if (e.key === "z" || e.key === "Z") {
+  } else if ((e.key === "z" || e.key === "Z") && !e.shiftKey) {
     toggleZoom();
-  } else if (e.key >= "1" && e.key <= "9") {
-    const idx = parseInt(e.key) - 1;
-    if (idx < STAGES.length && stg(idx)) setStage(idx);
+  } else if (e.code && e.code >= "Digit1" && e.code <= "Digit9") {
+    const idx = parseInt(e.code.charAt(5)) - 1;
+    if (idx < STAGES.length && stg(idx)) {
+      if (isSide) {
+        if (e.shiftKey) setSideRight(idx);
+        else setSideLeft(idx);
+      } else {
+        setStage(idx);
+      }
+    }
   }
 });
 

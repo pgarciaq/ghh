@@ -13,9 +13,9 @@ from click.testing import CliRunner
 from ghh.cli import main
 from ghh.flipbook import (
     _downscale_image,
-    _find_pdf,
     _find_source_images,
     _vendor_js_path,
+    find_pdf,
     generate_flipbook,
 )
 
@@ -107,20 +107,20 @@ class TestFindSourceImages:
 
 
 # ---------------------------------------------------------------------------
-# _find_pdf
+# find_pdf
 # ---------------------------------------------------------------------------
 
 
 class TestFindPdf:
     def test_finds_pdf(self, tmp_path: Path):
         out = _make_pipeline_output(tmp_path, with_pdf=True)
-        pdf = _find_pdf(out)
+        pdf = find_pdf(out)
         assert pdf is not None
         assert pdf.name == "LPA-1.pdf"
 
     def test_returns_none_when_no_pdf(self, tmp_path: Path):
         out = _make_pipeline_output(tmp_path, with_pdf=False)
-        assert _find_pdf(out) is None
+        assert find_pdf(out) is None
 
 
 # ---------------------------------------------------------------------------
@@ -365,6 +365,9 @@ class TestPublishWithFlipbook:
         assert result.exit_code == 0
         assert (pub_dir / "flipbook" / "index.html").exists()
         assert (pub_dir / "flipbook" / "pages").is_dir()
+        index_html = (pub_dir / "index.html").read_text()
+        assert "flipbook/index.html" in index_html
+        assert "Flipbook" in index_html
 
     def test_with_pdf_implies_flipbook(self, tmp_path: Path):
         out = _make_pipeline_output(tmp_path, with_pdf=True)
@@ -380,6 +383,11 @@ class TestPublishWithFlipbook:
         assert (fb_dir / "LPA-1.pdf").exists()
         html = (fb_dir / "index.html").read_text()
         assert "Download PDF" in html
+        index_html = (pub_dir / "index.html").read_text()
+        assert "flipbook/index.html" in index_html
+        assert "flipbook/LPA-1.pdf" in index_html
+        assert "Download PDF" in index_html
+        assert not (pub_dir / "LPA-1.pdf").exists()
 
     def test_without_flags_no_flipbook(self, tmp_path: Path):
         out = _make_pipeline_output(tmp_path)
@@ -390,3 +398,5 @@ class TestPublishWithFlipbook:
         )
         assert result.exit_code == 0
         assert not (pub_dir / "flipbook").exists()
+        index_html = (pub_dir / "index.html").read_text()
+        assert "flipbook" not in index_html

@@ -20,6 +20,22 @@ def main():
 
 
 @main.command()
+def stages():
+    """List all implemented pipeline stages."""
+    from ghh.stages import STAGE_CLASSES
+
+    click.echo("Implemented pipeline stages:\n")
+    click.echo(f"  {'#':>3}  {'Name':<16}  {'Checkpoint dir'}")
+    click.echo(f"  {'---':>3}  {'----':<16}  {'--------------'}")
+    for cls in sorted(STAGE_CLASSES, key=lambda c: c.number):
+        click.echo(
+            f"  {cls.number:>3}  {cls.name:<16}  {cls.checkpoint_name}"
+        )
+    click.echo(f"\n{len(STAGE_CLASSES)} stages. "
+               f"Use --stages with 'ghh run' to select specific stages.")
+
+
+@main.command()
 @click.argument("input_dir", type=click.Path(exists=True, file_okay=False))
 @click.option("-o", "--output-dir", type=click.Path(file_okay=False), default=None,
               help="Output directory (default: <input_dir>_output)")
@@ -52,7 +68,7 @@ def run(input_dir, output_dir, config_path, stage_spec, profile, preview,
     """
     from ghh.config import Config
     from ghh.pipeline import PipelineState
-    from ghh.stages import get_stages, parse_stage_spec, ALL_STAGE_NUMBERS
+    from ghh.stages import get_stages, parse_stage_spec
 
     _configure_logging(verbose, quiet)
 
@@ -298,22 +314,14 @@ def publish(output_dir, publish_dir, input_dir, max_dim, quality, stage_spec,
         stage_filter = {s.strip().zfill(2) for s in stage_spec.split(",")}
         stage_filter.add("orig")
 
-    click.echo("Publishing comparison site with downscaled JPEGs...")
-    html_path = publish_book(
-        output_path,
-        Path(publish_dir),
-        input_dir=input_path,
-        max_dim=max_dim,
-        quality=quality,
-        stage_filter=stage_filter,
-    )
-    click.echo(f"Published to {html_path.parent}")
-
     if with_pdf:
         with_flipbook = True
 
+    extra_links = ""
+    pdf_filename: str | None = None
+
     if with_flipbook:
-        from ghh.flipbook import generate_flipbook
+        from ghh.flipbook import find_pdf, generate_flipbook
 
         fb_dir = Path(publish_dir) / "flipbook"
         click.echo("Generating flipbook...")
@@ -326,8 +334,33 @@ def publish(output_dir, publish_dir, input_dir, max_dim, quality, stage_spec,
                 include_pdf=with_pdf,
             )
             click.echo(f"Flipbook added: {fb_index.parent}")
+            extra_links += (
+                '<a href="flipbook/index.html" class="extra-link" '
+                'target="_blank">&#128214; Flipbook</a>'
+            )
         except FileNotFoundError as exc:
             click.echo(f"Warning: {exc}", err=True)
+
+        if with_pdf:
+            pdf_src = find_pdf(output_path)
+            if pdf_src is not None:
+                pdf_filename = pdf_src.name
+                extra_links += (
+                    f'<a href="flipbook/{pdf_filename}" download '
+                    f'class="extra-link">&#128196; Download PDF</a>'
+                )
+
+    click.echo("Publishing comparison site with downscaled JPEGs...")
+    html_path = publish_book(
+        output_path,
+        Path(publish_dir),
+        input_dir=input_path,
+        max_dim=max_dim,
+        quality=quality,
+        stage_filter=stage_filter,
+        extra_links=extra_links,
+    )
+    click.echo(f"Published to {html_path.parent}")
 
     if not no_open:
         import webbrowser
