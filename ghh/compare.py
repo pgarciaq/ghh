@@ -732,6 +732,9 @@ function toggleSide() {
   if (isSide) {
     sideLeft = Math.max(0, stgIdx - 1);
     sideRight = stgIdx;
+    isMeta = false;
+    $metaToggle.checked = false;
+    $metaPanel.classList.remove("open");
   }
   render();
 }
@@ -741,6 +744,20 @@ function toggleMeta() {
   $metaPanel.classList.toggle("open", isMeta);
 }
 function toggleZoom() { isZoomed = !isZoomed; render(); }
+
+$sideToggle.addEventListener("change", () => {
+  isSide = $sideToggle.checked;
+  if (isSide) {
+    isMeta = false;
+    $metaToggle.checked = false;
+    $metaPanel.classList.remove("open");
+  }
+  render();
+});
+$metaToggle.addEventListener("change", () => {
+  isMeta = $metaToggle.checked;
+  $metaPanel.classList.toggle("open", isMeta);
+});
 
 $sideToggle.addEventListener("change", () => {
   isSide = $sideToggle.checked; render();
