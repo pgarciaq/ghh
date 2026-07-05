@@ -136,7 +136,7 @@ def generate_flipbook(
     if include_pdf:
         pdf_src = _find_pdf(output_dir)
         if pdf_src is not None:
-            pdf_filename = "book.pdf"
+            pdf_filename = pdf_src.name
             shutil.copy2(pdf_src, flipbook_dir / pdf_filename)
             logger.info("Copied PDF: %s", pdf_src.name)
         else:

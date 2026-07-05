@@ -54,7 +54,7 @@ def _make_pipeline_output(
     if with_pdf:
         pdf_dir = out / "12_pdf"
         pdf_dir.mkdir()
-        (pdf_dir / "output.pdf").write_bytes(b"%PDF-1.4 fake pdf content")
+        (pdf_dir / "LPA-1.pdf").write_bytes(b"%PDF-1.4 fake pdf content")
 
     return out
 
@@ -118,7 +118,7 @@ class TestFindPdf:
         out = _make_pipeline_output(tmp_path, with_pdf=True)
         pdf = _find_pdf(out)
         assert pdf is not None
-        assert pdf.name == "output.pdf"
+        assert pdf.name == "LPA-1.pdf"
 
     def test_returns_none_when_no_pdf_dir(self, tmp_path: Path):
         out = _make_pipeline_output(tmp_path, with_pdf=False)
@@ -213,24 +213,24 @@ class TestGenerateFlipbook:
         out = _make_pipeline_output(tmp_path, with_pdf=True)
         index = generate_flipbook(out, include_pdf=False)
         html = index.read_text()
-        assert "book.pdf" not in html
-        assert not (index.parent / "book.pdf").exists()
+        assert "LPA-1.pdf" not in html
+        assert not (index.parent / "LPA-1.pdf").exists()
 
     def test_pdf_copied(self, tmp_path: Path):
         out = _make_pipeline_output(tmp_path, with_pdf=True)
         index = generate_flipbook(out)
         fb_dir = index.parent
-        assert (fb_dir / "book.pdf").exists()
+        assert (fb_dir / "LPA-1.pdf").exists()
         html = index.read_text()
-        assert "book.pdf" in html
+        assert "LPA-1.pdf" in html
         assert "Download PDF" in html
 
     def test_pdf_missing_warns(self, tmp_path: Path, caplog):
         out = _make_pipeline_output(tmp_path, with_pdf=False)
         index = generate_flipbook(out, include_pdf=True)
         html = index.read_text()
-        assert "book.pdf" not in html
-        assert not (index.parent / "book.pdf").exists()
+        assert "Download PDF" not in html
+        assert not (index.parent / "LPA-1.pdf").exists()
 
     def test_metadata_sidecar(self, tmp_path: Path):
         out = _make_pipeline_output(tmp_path)
@@ -298,7 +298,7 @@ class TestFlipbookCLI:
         runner = CliRunner()
         result = runner.invoke(main, ["flipbook", str(out), "--no-pdf", "--no-open"])
         assert result.exit_code == 0
-        assert not (out / "flipbook" / "book.pdf").exists()
+        assert not (out / "flipbook" / "LPA-1.pdf").exists()
 
     def test_with_title(self, tmp_path: Path):
         out = _make_pipeline_output(tmp_path)
@@ -362,7 +362,7 @@ class TestPublishWithFlipbook:
         assert result.exit_code == 0
         fb_dir = pub_dir / "flipbook"
         assert fb_dir.exists()
-        assert (fb_dir / "book.pdf").exists()
+        assert (fb_dir / "LPA-1.pdf").exists()
         html = (fb_dir / "index.html").read_text()
         assert "Download PDF" in html
 

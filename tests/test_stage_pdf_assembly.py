@@ -22,8 +22,13 @@ from ghh.stages.pdf_assembly import PDFAssemblyStage, _collect_images
 # ---------------------------------------------------------------------------
 
 def _cfg(tmp_path: Path, **overrides) -> Config:
-    """Create a Config rooted in tmp_path with optional overrides."""
-    return Config(input_dir=tmp_path, **overrides)
+    """Create a Config rooted in tmp_path with optional overrides.
+
+    Uses a fixed input_dir name so the PDF filename is predictable.
+    """
+    input_dir = tmp_path / "book"
+    input_dir.mkdir(exist_ok=True)
+    return Config(input_dir=input_dir, **overrides)
 
 
 def _make_color_image(
@@ -116,7 +121,7 @@ class TestPDFAssemblyJPEG:
 
         result = stage.run(input_dir, output_dir, cfg, state)
 
-        pdf_path = output_dir / "output.pdf"
+        pdf_path = output_dir / "book.pdf"
         assert pdf_path.exists()
         assert pdf_path.read_bytes()[:5] == b"%PDF-"
         assert result.processed == 3
@@ -141,8 +146,8 @@ class TestPDFAssemblyJPEG:
         state_p = PipelineState(out_png)
         PDFAssemblyStage().run(input_dir, out_png, cfg_png, state_p)
 
-        jpeg_size = (out_jpeg / "output.pdf").stat().st_size
-        png_size = (out_png / "output.pdf").stat().st_size
+        jpeg_size = (out_jpeg / "book.pdf").stat().st_size
+        png_size = (out_png / "book.pdf").stat().st_size
         assert jpeg_size < png_size
 
     def test_jpeg_quality_affects_size(self, tmp_path):
@@ -161,8 +166,8 @@ class TestPDFAssemblyJPEG:
         state_high = PipelineState(out_high)
         PDFAssemblyStage().run(input_dir, out_high, cfg_high, state_high)
 
-        low_size = (out_low / "output.pdf").stat().st_size
-        high_size = (out_high / "output.pdf").stat().st_size
+        low_size = (out_low / "book.pdf").stat().st_size
+        high_size = (out_high / "book.pdf").stat().st_size
         assert low_size < high_size
 
 
@@ -185,7 +190,7 @@ class TestPDFAssemblyPNG:
 
         result = stage.run(input_dir, output_dir, cfg, state)
 
-        pdf_path = output_dir / "output.pdf"
+        pdf_path = output_dir / "book.pdf"
         assert pdf_path.exists()
         assert pdf_path.read_bytes()[:5] == b"%PDF-"
         assert result.processed == 3
@@ -200,7 +205,7 @@ class TestPDFAssemblyPNG:
         state = PipelineState(output_dir)
         PDFAssemblyStage().run(input_dir, output_dir, cfg, state)
 
-        page_count = _read_pdf_page_count(output_dir / "output.pdf")
+        page_count = _read_pdf_page_count(output_dir / "book.pdf")
         assert page_count == 7
 
 
@@ -223,7 +228,7 @@ class TestPDFAssemblyCompressionCaseInsensitive:
         result = PDFAssemblyStage().run(input_dir, output_dir, cfg, state)
 
         assert result.processed == 1
-        assert (output_dir / "output.pdf").exists()
+        assert (output_dir / "book.pdf").exists()
 
     @pytest.mark.parametrize("value", ["PNG", "Png", "pNg"])
     def test_png_variants(self, tmp_path, value):
@@ -237,7 +242,7 @@ class TestPDFAssemblyCompressionCaseInsensitive:
         result = PDFAssemblyStage().run(input_dir, output_dir, cfg, state)
 
         assert result.processed == 1
-        assert (output_dir / "output.pdf").exists()
+        assert (output_dir / "book.pdf").exists()
 
 
 # ---------------------------------------------------------------------------
@@ -260,13 +265,13 @@ class TestPDFAssemblyResume:
         result1 = stage.run(input_dir, output_dir, cfg, state)
         assert result1.processed == 3
 
-        pdf_mtime = (output_dir / "output.pdf").stat().st_mtime
+        pdf_mtime = (output_dir / "book.pdf").stat().st_mtime
 
         result2 = stage.run(input_dir, output_dir, cfg, state)
         assert result2.skipped == 1
         assert result2.processed == 0
 
-        assert (output_dir / "output.pdf").stat().st_mtime == pdf_mtime
+        assert (output_dir / "book.pdf").stat().st_mtime == pdf_mtime
 
 
 # ---------------------------------------------------------------------------
@@ -328,7 +333,7 @@ class TestPDFAssemblyDPI:
         state = PipelineState(output_dir)
         PDFAssemblyStage().run(input_dir, output_dir, cfg, state)
 
-        sidecar = output_dir / "output.pdf.json"
+        sidecar = output_dir / "book.pdf.json"
         assert sidecar.exists()
         meta = json.loads(sidecar.read_text())
         assert meta["dpi"] == 150
@@ -351,7 +356,7 @@ class TestPDFAssemblyMetadata:
         state = PipelineState(output_dir)
         PDFAssemblyStage().run(input_dir, output_dir, cfg, state)
 
-        sidecar = output_dir / "output.pdf.json"
+        sidecar = output_dir / "book.pdf.json"
         meta = json.loads(sidecar.read_text())
 
         assert meta["stage"] == "pdf_assembly"
@@ -372,7 +377,7 @@ class TestPDFAssemblyMetadata:
         state = PipelineState(output_dir)
         PDFAssemblyStage().run(input_dir, output_dir, cfg, state)
 
-        meta = json.loads((output_dir / "output.pdf.json").read_text())
+        meta = json.loads((output_dir / "book.pdf.json").read_text())
         assert meta["compression"] == "png"
         assert meta["jpeg_quality"] is None
 
@@ -420,7 +425,7 @@ class TestPDFAssemblyPageOrder:
         state = PipelineState(output_dir)
         PDFAssemblyStage().run(input_dir, output_dir, cfg, state)
 
-        meta = json.loads((output_dir / "output.pdf.json").read_text())
+        meta = json.loads((output_dir / "book.pdf.json").read_text())
         assert meta["page_count"] == 3
 
 
@@ -442,7 +447,7 @@ class TestPDFAssemblyInputFromAnyStage:
         result = PDFAssemblyStage().run(checkpoint_dir, output_dir, cfg, state)
 
         assert result.processed == 2
-        assert (output_dir / "output.pdf").exists()
+        assert (output_dir / "book.pdf").exists()
 
     def test_works_with_stage_05_dir(self, tmp_path):
         checkpoint_dir = tmp_path / "05_perspective"

@@ -161,7 +161,7 @@ output/
   09_enhanced/               IMG_0011.jpg, ...
   10_normalized/             IMG_0011.jpg, ...   (cross-page color + DPI matched)
   11_ocr/                    IMG_0011.hocr, ...  (hOCR XML files)
-  12_pdf/                    output.pdf, output.pdf.json
+  12_pdf/                    <book>.pdf, <book>.pdf.json
   flipbook/                  index.html, pages/, page-flip.browser.js, flipbook.json
   pipeline.json                                  (stage status, parameters used)
   ghh.log                                 (detailed log, always verbose)
@@ -1332,12 +1332,13 @@ ocr_blank_stddev_threshold: float = 15
 4. Assembly: img2pdf.convert() with custom layout function setting
    page dimensions from image pixel dimensions and cfg.pdf_dpi (default 300).
 
-5. Atomic write: output.pdf.tmp → output.pdf via os.replace().
+5. Atomic write: <book>.pdf.tmp → <book>.pdf via os.replace().
+   The PDF is named after the input directory (e.g., LPA-1.pdf).
 
-6. Write metadata sidecar (output.pdf.json) with page count, compression,
+6. Write metadata sidecar (<book>.pdf.json) with page count, compression,
    quality, DPI, file size, and input directory.
 
-7. Resume: if output.pdf exists and stage is marked done in PipelineState,
+7. Resume: if <book>.pdf exists and stage is marked done in PipelineState,
    skip entirely. PDF assembly is all-or-nothing (no partial resume).
 ```
 
@@ -1361,7 +1362,7 @@ dpi = 300
 ### Input/Output
 
 - Input: images from latest completed stage checkpoint
-- Output: `output.pdf` + `output.pdf.json` sidecar
+- Output: `<input_dir_name>.pdf` + `<input_dir_name>.pdf.json` sidecar in `12_pdf/`
 
 ### Future enhancements (deferred)
 
@@ -1477,7 +1478,7 @@ ghh publish OUTPUT_DIR DIR --with-pdf        # include flipbook + PDF download
   Node.js required to view it. Just open `index.html` in a browser.
 - `ghh publish --with-flipbook` generates the flipbook into `PUBLISH_DIR/flipbook/`.
   `--with-pdf` implies `--with-flipbook` and copies the PDF for download.
-- PDF is sourced from `12_pdf/output.pdf`; if absent, the link is silently omitted.
+- PDF is sourced from `12_pdf/<book>.pdf`; if absent, the link is silently omitted.
 
 ---
 
@@ -1614,7 +1615,7 @@ Each stage emits progress via `tqdm` (when available) or plain logging:
 Processed 222/225 images in 12m34s.
   2 flagged (soft fallback): IMG_0045 (low focus), IMG_0013 (no staff lines)
   1 excluded (critical failure): IMG_0080 (Stage 4: no page quad found)
-Output: /path/to/output/output.pdf
+Output: /path/to/output/LPA-1.pdf
 Config source: analyzed (book.toml)
 ```
 
@@ -2178,7 +2179,7 @@ Processed 222/225 images.
   1 excluded (critical failure): IMG_0080 (Stage 4: no page quad found)
   0 failed stages: all skippable failures recovered
 
-Output: /path/to/output/output.pdf (222 pages, 185 MB)
+Output: /path/to/output/LPA-1.pdf (222 pages, 185 MB)
 Log: /path/to/output/ghh.log
 ```
 
@@ -2208,7 +2209,7 @@ The CLI warns about estimated disk usage before processing starts:
 
 ```bash
 # Remove intermediate checkpoints after successful completion,
-# keeping only 10_normalized/ (final images) and output.pdf
+# keeping only 10_normalized/ (final images) and the PDF
 ghh run INPUT_DIR --cleanup
 
 # Keep only specific stages (for debugging a particular stage)

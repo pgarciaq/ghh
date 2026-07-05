@@ -2,8 +2,8 @@
 
 Collects all images from the latest completed pipeline stage and
 assembles them into a single PDF file.  This is the terminal stage
--- it produces ``output.pdf`` in the output directory rather than
-per-image checkpoint files.
+-- it produces ``<input_dir_name>.pdf`` in the output directory rather
+than per-image checkpoint files.
 
 Two compression modes are supported:
 
@@ -78,7 +78,8 @@ class PDFAssemblyStage(BaseStage):
         output_dir = Path(output_dir)
         input_dir = Path(input_dir)
 
-        pdf_path = output_dir / "output.pdf"
+        pdf_name = f"{cfg.input_dir.name}.pdf"
+        pdf_path = output_dir / pdf_name
 
         if state.is_image_done(self.checkpoint_name, "output") and pdf_path.exists():
             result.skipped = 1
@@ -109,7 +110,7 @@ class PDFAssemblyStage(BaseStage):
 
         pdf_bytes = img2pdf.convert(image_data, layout_fun=layout)
 
-        tmp_path = output_dir / "output.pdf.tmp"
+        tmp_path = output_dir / f"{cfg.input_dir.name}.pdf.tmp"
         tmp_path.write_bytes(pdf_bytes)
         os.replace(str(tmp_path), str(pdf_path))
 
@@ -124,7 +125,7 @@ class PDFAssemblyStage(BaseStage):
             "file_size_bytes": file_size,
             "input_dir": str(input_dir),
         }
-        sidecar = output_dir / "output.pdf.json"
+        sidecar = output_dir / f"{cfg.input_dir.name}.pdf.json"
         sidecar.write_text(json.dumps(meta, indent=2))
 
         state.mark_image_done(self.checkpoint_name, "output")
