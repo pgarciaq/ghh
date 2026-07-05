@@ -178,15 +178,36 @@ def add_finger(
 
 
 def add_barrel_distortion(img: np.ndarray, k1: float = 0.3) -> np.ndarray:
-    """Apply synthetic barrel distortion with known k1 coefficient."""
+    """Apply synthetic barrel distortion with known k1 coefficient.
+
+    Uses iterative inversion of OpenCV's radial distortion model to
+    build a remap: for each output (distorted) pixel position, find
+    the corresponding undistorted source position to sample from.
+
+    The focal length is ``max(w, h)`` to match ``LensCorrectStage``,
+    so ``cv2.undistort`` with the same k1 is the exact inverse.
+    """
     h, w = img.shape[:2]
-    fx = fy = w
-    cx, cy = w / 2, h / 2
-    camera_matrix = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]], dtype=np.float64)
-    dist_coeffs = np.array([k1, 0, 0, 0, 0], dtype=np.float64)
-    map1, map2 = cv2.initUndistortRectifyMap(camera_matrix, dist_coeffs, None,
-                                              camera_matrix, (w, h), cv2.CV_32FC1)
-    return cv2.remap(img, map1, map2, cv2.INTER_LINEAR)
+    fx = fy = float(max(w, h))
+    cx, cy = w / 2.0, h / 2.0
+
+    y, x = np.mgrid[0:h, 0:w].astype(np.float32)
+    xd_n = (x - cx) / fx
+    yd_n = (y - cy) / fy
+
+    # Forward model: xd = xu * (1 + k1*ru²).
+    # Invert iteratively: given (xd_n, yd_n), solve for (xu, yu).
+    xu, yu = xd_n.copy(), yd_n.copy()
+    for _ in range(10):
+        r2 = xu * xu + yu * yu
+        factor = 1.0 + k1 * r2
+        xu = xd_n / factor
+        yu = yd_n / factor
+
+    map_x = (xu * fx + cx).astype(np.float32)
+    map_y = (yu * fy + cy).astype(np.float32)
+
+    return cv2.remap(img, map_x, map_y, cv2.INTER_LINEAR)
 
 
 def add_hotspot(img: np.ndarray, center: tuple[int, int] | None = None,

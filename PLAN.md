@@ -47,7 +47,7 @@ physical condition (coastal preservation, humidity damage, aging).
 | -- | Test tiers (@pytest.mark.slow) | **Done** | 16 tagged | |
 | 9 | stages/analyze.py | **Done** | 18 tests | |
 | 10 | Stage 2 (orientation) | **Done** | 31 tests | OSD + adaptive OSD + title + spine cascade; 224/224 on LPA-1 |
-| 11 | Stage 3 (lens correct) | Pending | | |
+| 11 | Stage 3 (lens correct) | **Done** | 22 tests | Optional; skips when k1=k2=0; `cv2.undistort` with `max(w,h)` focal length |
 | 12 | Stage 4 (page detect) | Pending | | |
 | 13 | Stage 5 (perspective) | Pending | | |
 | 14 | Stage 6 (content area) | Pending | | |
@@ -717,7 +717,7 @@ focus_score_threshold: float = 100.0
 
 ---
 
-## Stage 3: Lens Distortion Correction (`lens_correct.py`, optional)
+## Stage 3: Lens Distortion Correction (`lens_correct.py`, optional) ✅
 
 Runs only when `analyze` detects significant radial distortion (R7).
 Must run **before** page detection: `cv2.undistort` requires the
@@ -725,13 +725,13 @@ original optical center (near image center), which is lost after
 perspective correction. Correcting early also produces straighter
 page edges, improving quad detection in Stage 4.
 
-### Algorithm
+### Algorithm (implemented)
 
 ```
-1. Estimate distortion from analyze results (book.toml k1, k2):
-   - analyze detects distortion by measuring edge curvature of page
-     quads across sample images
-   - If k1 == k2 == 0.0: skip this stage entirely
+1. Check skip condition:
+   - If lens_distortion_k1 == 0.0 AND lens_distortion_k2 == 0.0:
+     skip this stage entirely (the default state).
+   - Also skipped if profile/flag overrides say so.
 
 2. Build camera matrix:
    fx = fy = max(width, height)  (reasonable default for unknown focal length)
@@ -740,23 +740,32 @@ page edges, improving quad detection in Stage 4.
 3. cv2.undistort(img, camera_matrix, dist_coeffs)
    where dist_coeffs = [k1, k2, 0, 0, 0]
 
-4. Optional: if analyze stored per-image coefficients (e.g., zoom
-   varied between shots), load per-image k1/k2 from metadata
+4. Write metadata sidecar with: stage, k1, k2, focal_length_px
 ```
 
-### Parameters
+### Parameters (Config)
 
 ```python
-lens_correction: bool = False       # auto-enabled by analyze
-lens_distortion_k1: float = 0.0
-lens_distortion_k2: float = 0.0
+lens_distortion_k1: float = 0.0    # radial distortion coefficient
+lens_distortion_k2: float = 0.0    # higher-order radial coefficient
+```
+
+### Stage attributes
+
+```python
+name = "lens_correct"
+number = 3
+checkpoint_name = "03_lens_corrected"
+error_class = "skippable"
 ```
 
 ### Input/Output
 
 - Input: oriented image from `02_oriented/`
 - Output: undistorted image in `03_lens_corrected/`
-- If distortion coefficients are zero: stage is skipped, images pass through
+- If distortion coefficients are zero: stage is skipped, pipeline
+  reads from `02_oriented/` for the next stage via
+  `_find_previous_checkpoint()`
 
 ---
 
@@ -2883,7 +2892,7 @@ on synthetic images:
 9. ~~**stages/analyze.py**~~: ✅ auto-detect book characteristics, generate book.toml, adaptive sampling, coarse orientation, simplified quad detection, median-based robustness (18 tests)
 10. ~~**Stage 2** (orientation)~~: ✅ content-based axis detection (HoughLinesP) + staff-area validation + cascading polarity (Tesseract OSD standard + adaptive, red title edges, spine S/V) + focus QA (31 tests, 224/224 on LPA-1)
 11. ~~**Real image smoke test**~~: ✅ Stages 0-1-2 on full LPA-1 set (225 images), visual inspection confirmed 224/224 correct orientation
-12. **Stage 3** (lens correct, optional): radial distortion correction (R7) -- simple
+12. ~~**Stage 3** (lens correct, optional)~~: ✅ radial distortion correction (R7) via `cv2.undistort`, auto-skip when k1=k2=0, `max(w,h)` focal length (22 tests)
 13. **Stage 4** (page detect): Otsu + fallback chain (R2), page type classification
 14. **Stage 5** (perspective): homography from quad corners, background fill
 15. **Stage 6** (content area): border detection, edge masking, margins

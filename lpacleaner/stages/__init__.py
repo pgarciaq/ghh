@@ -11,11 +11,13 @@ from lpacleaner.pipeline import BaseStage
 from lpacleaner.stages.preprocess import PreprocessStage
 from lpacleaner.stages.stitch import StitchStage
 from lpacleaner.stages.orientation import OrientationStage
+from lpacleaner.stages.lens_correct import LensCorrectStage
 
 STAGE_CLASSES: list[type[BaseStage]] = [
     PreprocessStage,   # 0
     StitchStage,       # 1
     OrientationStage,  # 2
+    LensCorrectStage,  # 3
 ]
 
 STAGE_BY_NUMBER: dict[int, type[BaseStage]] = {s.number: s for s in STAGE_CLASSES}
