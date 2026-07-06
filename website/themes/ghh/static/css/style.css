@@ -406,6 +406,11 @@ section {
   color: var(--parchment-dark);
   border: 1px solid rgba(236,228,212,0.2);
 }
+.roadmap-badge.done {
+  background: rgba(45,106,79,0.2);
+  color: #6fcf97;
+  border: 1px solid var(--green-done);
+}
 
 /* --- Getting Started --- */
 .getting-started-content {
@@ -456,26 +461,29 @@ code, .code-block {
 .code-block .command { color: #e6c88e; }
 .code-block .prompt { color: #7a8a7a; }
 
-/* --- Flipbook CTA --- */
-.flipbook-cta {
-  text-align: center;
-  padding: 4rem 2rem;
-  background:
-    linear-gradient(135deg, var(--parchment) 0%, var(--parchment-light) 100%);
-  border-top: 2px solid var(--parchment-dark);
-  border-bottom: 2px solid var(--parchment-dark);
+/* --- Live Demo --- */
+.demo-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+  align-items: start;
 }
-.flipbook-cta h2 {
+.demo-card {
+  background: var(--parchment-light);
+  border: 1px solid var(--parchment-dark);
+  border-radius: 6px;
+  padding: 2.5rem;
+  text-align: center;
+}
+.demo-card h3 {
   font-family: var(--serif);
-  font-size: 2rem;
+  font-size: 1.3rem;
   margin-bottom: 0.8rem;
 }
-.flipbook-cta p {
+.demo-card p {
   color: var(--ink-light);
-  margin-bottom: 2rem;
-  max-width: 600px;
-  margin-left: auto;
-  margin-right: auto;
+  margin-bottom: 1.5rem;
+  font-size: 0.95rem;
 }
 
 /* --- Contact --- */
@@ -727,6 +735,7 @@ code, .code-block {
   .sliders-grid { grid-template-columns: 1fr; }
   .getting-started-content { grid-template-columns: 1fr; }
   .contact-grid { grid-template-columns: 1fr; }
+  .demo-grid { grid-template-columns: 1fr; }
   .nav-links { display: none; }
   section { padding: 3rem 1.2rem; }
   .hero { padding: 7rem 1.2rem 3rem; }

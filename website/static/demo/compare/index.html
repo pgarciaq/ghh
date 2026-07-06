@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Guido's Helping Hand — ghh-demo-subset</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    sans-serif;
+  background: #2e2517; color: #eee;
+  display: flex; flex-direction: column; height: 100vh;
+}
+
+/* --- Top bar: image navigation --- */
+.topbar {
+  background: #2a1f0d; padding: 6px 16px;
+  display: flex; align-items: center; gap: 12px;
+  border-bottom: 1px solid #38301b;
+  flex-shrink: 0;
+}
+.topbar h1 {
+  font-size: 15px; font-weight: 600;
+  color: #e6c88e; white-space: nowrap;
+}
+.mode-badge {
+  font-size: 11px; padding: 2px 10px; border-radius: 10px;
+  background: #604a0f; color: #e6c88e;
+  border: 1px solid #76521a;
+  white-space: nowrap; user-select: none;
+}
+.nav-btn {
+  background: #38301b; border: 1px solid #6b5a2a;
+  color: #e6c88e;
+  padding: 4px 14px; border-radius: 4px; cursor: pointer;
+  font-size: 13px; user-select: none;
+}
+.nav-btn:hover { background: #6b5a2a; color: #fff; }
+.nav-btn:disabled { opacity: 0.3; cursor: default; }
+.img-counter {
+  font-size: 13px; color: #e6c88e; white-space: nowrap;
+  min-width: 100px; text-align: center;
+}
+.img-select {
+  background: #38301b; color: #e6c88e;
+  border: 1px solid #6b5a2a;
+  padding: 3px 6px; border-radius: 4px; font-size: 12px;
+  max-width: 180px;
+}
+.extra-link {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 10px; font-size: 12px; text-decoration: none;
+  border-radius: 3px; margin-left: 4px;
+  background: #38301b; color: #e6c88e;
+  border: 1px solid #6b5a2a;
+}
+.extra-link:hover { opacity: 0.85; }
+
+/* --- Stage tabs --- */
+header {
+  background: #3e2f16; padding: 6px 16px;
+  display: flex; align-items: center; gap: 12px;
+  border-bottom: 1px solid #604a0f;
+  flex-shrink: 0;
+}
+.tabs { display: flex; gap: 4px; flex-wrap: wrap; }
+.tab {
+  padding: 4px 12px; border-radius: 4px; cursor: pointer;
+  background: #604a0f; border: 1px solid #76521a;
+  font-size: 13px;
+  color: #bbb; transition: all 0.15s; user-select: none;
+}
+.tab:hover { background: #76521a; color: #fff; }
+.tab.active {
+  background: #e99445; color: #fff; border-color: #e99445;
+}
+.tab.active-left {
+  background: #1a6b5a; color: #fff; border-color: #1a6b5a;
+  box-shadow: inset 0 -3px 0 #4dd0b8;
+}
+.tab.active-right {
+  background: #6b4a1a; color: #fff; border-color: #6b4a1a;
+  box-shadow: inset 0 -3px 0 #e6a040;
+}
+.tab.active-both {
+  background: #4a4a4a; color: #fff; border-color: #4a4a4a;
+  box-shadow: inset 3px -3px 0 #4dd0b8, inset -3px -3px 0 #e6a040;
+}
+.tab.missing { opacity: 0.3; cursor: default; }
+.controls {
+  margin-left: auto; display: flex; gap: 8px;
+  align-items: center; flex-shrink: 0;
+}
+.controls label { font-size: 12px; cursor: pointer; }
+.controls input[type=checkbox] { margin-right: 4px; }
+
+/* --- Main image area --- */
+.main {
+  flex: 1; position: relative;
+  overflow: hidden; min-height: 0;
+}
+.view-single {
+  width: 100%; height: 100%;
+  display: flex; justify-content: center; align-items: center;
+  padding: 8px;
+}
+.view-single img {
+  max-width: 100%; max-height: 100%; object-fit: contain;
+}
+.view-single img.zoomed {
+  max-width: none; max-height: none;
+  cursor: grab; object-fit: initial;
+}
+.view-side {
+  width: 100%; height: 100%; display: flex;
+}
+.view-side .pane {
+  flex: 1; display: flex; flex-direction: column;
+  border-right: 1px solid #333; overflow: hidden;
+  min-height: 0;
+}
+.view-side .pane:last-child { border-right: none; }
+.pane-body {
+  flex: 1; min-height: 0;
+  display: flex; justify-content: center; align-items: center;
+  padding: 8px;
+}
+.pane-label {
+  position: absolute; top: 8px; padding: 3px 10px; font-size: 11px;
+  font-weight: 600; border-radius: 3px; z-index: 5;
+  pointer-events: none; opacity: 0.9;
+}
+.pane-label-left {
+  left: 8px; background: rgba(26,107,90,0.85); color: #4dd0b8;
+  border: 1px solid #4dd0b8;
+}
+.pane-label-right {
+  right: 8px; background: rgba(107,74,26,0.85); color: #e6a040;
+  border: 1px solid #e6a040;
+}
+.pane-body {
+  position: relative;
+}
+.pane-body img {
+  max-width: 100%; max-height: 100%; object-fit: contain;
+}
+.pane-body img.zoomed {
+  max-width: none; max-height: none;
+  cursor: grab; object-fit: initial;
+}
+
+/* --- Metadata panel --- */
+.meta-panel {
+  position: absolute; right: 0; top: 0; bottom: 0;
+  width: 320px; background: #3e2f16; padding: 12px;
+  overflow-y: auto; border-left: 1px solid #604a0f;
+  font-size: 12px; font-family: monospace;
+  transform: translateX(100%); transition: transform 0.2s;
+  z-index: 10;
+}
+.meta-panel.open { transform: translateX(0); }
+.meta-panel h3 {
+  font-size: 13px; margin-bottom: 8px; color: #e99445;
+}
+.meta-panel pre {
+  white-space: pre-wrap; word-break: break-all;
+  color: #aaa; line-height: 1.5;
+}
+
+/* --- Footer --- */
+footer {
+  background: #3e2f16; padding: 4px 16px;
+  font-size: 11px; color: #aaa;
+  border-top: 1px solid #604a0f; flex-shrink: 0;
+  display: flex; justify-content: space-between; align-items: center;
+}
+footer a { color: #aaa; text-decoration: none; }
+footer a:hover { color: #ddd; }
+footer kbd {
+  background: #604a0f; padding: 1px 5px; border-radius: 3px;
+  border: 1px solid #76521a; font-size: 10px;
+}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1 id="bookTitle">ghh-demo-subset</h1>
+  <span class="mode-badge">Published 2026-07-06 16:37 UTC</span>
+  <button class="nav-btn" id="prevImg">&laquo; Prev</button>
+  <span class="img-counter" id="imgCounter"></span>
+  <button class="nav-btn" id="nextImg">Next &raquo;</button>
+  <select class="img-select" id="imgSelect"></select>
+  <a href="flipbook/index.html" class="extra-link" target="_blank">&#128214; Flipbook</a>
+</div>
+
+<header>
+  <div class="tabs" id="tabs"></div>
+  <div class="controls">
+    <label>
+      <input type="checkbox" id="sideToggle"> Side-by-side
+    </label>
+    <label>
+      <input type="checkbox" id="metaToggle"> Metadata
+    </label>
+  </div>
+</header>
+
+<div class="main" id="main"></div>
+
+<div class="meta-panel" id="metaPanel">
+  <h3 id="metaTitle"></h3>
+  <pre id="metaContent"></pre>
+</div>
+
+<footer>
+  <span id="footer">
+    <kbd>↑</kbd> <kbd>↓</kbd> prev/next image (stage 0) &nbsp;
+    <kbd>PgUp</kbd> <kbd>PgDn</kbd> prev/next image (keep stage) &nbsp;
+    <kbd>←</kbd> <kbd>→</kbd> prev/next stage &nbsp;
+    <kbd>S</kbd> side-by-side &nbsp;
+    <kbd>M</kbd> metadata &nbsp;
+    <kbd>Z</kbd> zoom &nbsp;
+    <kbd>1</kbd>–<kbd>9</kbd> jump to stage
+  </span>
+  <span>Generated by
+    <a href="https://pgarciaq.github.io/ghh/"
+       target="_blank">Guido's Helping Hand</a></span>
+</footer>
+
+<script>
+const BOOK = {"stages":["0: Preprocess","1: Stitch","2: Orientation","4: Page Detect","5: Perspective"],"images":[{"stem":"IMG_0011","stages":[{"src":"images/00_preprocessed/IMG_0011.jpg","meta":{"stage":"preprocess","hotspot_detected":false}},{"src":"images/01_stitched/IMG_0011.jpg","meta":{"stage":"stitch","group":["IMG_0011"],"non_content_detected":[],"stitch_method":"single","stitch_success":true}},{"src":"images/02_oriented/IMG_0011.jpg","meta":{"stage":"orientation","rotation_applied":270,"orientation_method":"portrait_fallback+polarity_flip","focus_score":60.71519738588535,"focus_threshold":100.0,"is_blurry":true}},{"src":"images/04_page_detected/IMG_0011.jpg","meta":{"stage":"page_detect","method":"otsu","page_type":"text","quad_corners":[[0.0,0.0],[2999.0,0.0],[2999.0,3999.0],[0.0,3999.0]]}},{"src":"images/05_perspective/IMG_0011.jpg","meta":{"stage":"perspective","method":"warpPerspective","src_quad":[[0.0,0.0],[2999.0,0.0],[2999.0,3999.0],[0.0,3999.0]],"dst_size":[2999,3999],"background_color":[120,136,138],"page_type":"text"}}]},{"stem":"IMG_0012","stages":[{"src":"images/00_preprocessed/IMG_0012.jpg","meta":{"stage":"preprocess","hotspot_detected":false}},{"src":"images/01_stitched/IMG_0012.jpg","meta":{"stage":"stitch","group":["IMG_0012"],"non_content_detected":[],"stitch_method":"single","stitch_success":true}},{"src":"images/02_oriented/IMG_0012.jpg","meta":{"stage":"orientation","rotation_applied":90,"orientation_method":"portrait_fallback","focus_score":31.03560820028888,"focus_threshold":100.0,"is_blurry":true}},{"src":"images/04_page_detected/IMG_0012.jpg","meta":{"stage":"page_detect","method":"otsu","page_type":"text","quad_corners":[[0.0,297.4127197265625],[2951.690185546875,217.517822265625],[2872.71142578125,3999.0],[191.39056396484375,3999.0]]}},{"src":"images/05_perspective/IMG_0012.jpg","meta":{"stage":"perspective","method":"warpPerspective","src_quad":[[0.0,297.4127197265625],[2951.690185546875,217.517822265625],[2872.71142578125,3999.0],[191.39056396484375,3999.0]],"dst_size":[2953,3782],"background_color":[94,108,115],"page_type":"text"}}]},{"stem":"IMG_0013","stages":[{"src":"images/00_preprocessed/IMG_0013.jpg","meta":{"stage":"preprocess","hotspot_detected":false}},{"src":"images/01_stitched/IMG_0013.jpg","meta":{"stage":"stitch","group":["IMG_0013"],"non_content_detected":[],"stitch_method":"single","stitch_success":true}},{"src":"images/02_oriented/IMG_0013.jpg","meta":{"stage":"orientation","rotation_applied":270,"orientation_method":"portrait_fallback+polarity_flip","focus_score":28.12448281244683,"focus_threshold":100.0,"is_blurry":true}},{"src":"images/04_page_detected/IMG_0013.jpg","meta":{"stage":"page_detect","method":"otsu","page_type":"text","quad_corners":[[376.7627258300781,0.0],[2999.0,0.0],[2999.0,3970.256591796875],[0.0,2990.252197265625]]}},{"src":"images/05_perspective/IMG_0013.jpg","meta":{"stage":"perspective","method":"warpPerspective","src_quad":[[376.7627258300781,0.0],[2999.0,0.0],[2999.0,3970.256591796875],[0.0,2990.252197265625]],"dst_size":[3155,3970],"background_color":[133,144,146],"page_type":"text"}}]},{"stem":"IMG_0014","stages":[{"src":"images/00_preprocessed/IMG_0014.jpg","meta":{"stage":"preprocess","hotspot_detected":false}},{"src":"images/01_stitched/IMG_0014.jpg","meta":{"stage":"stitch","group":["IMG_0014"],"non_content_detected":[],"stitch_method":"single","stitch_success":true}},{"src":"images/02_oriented/IMG_0014.jpg","meta":{"stage":"orientation","rotation_applied":90,"orientation_method":"portrait_fallback","focus_score":94.77771536573485,"focus_threshold":100.0,"is_blurry":true}},{"src":"images/04_page_detected/IMG_0014.jpg","meta":{"stage":"page_detect","method":"otsu","page_type":"text","quad_corners":[[0.0,0.0],[2999.0,207.60284423828125],[2712.438232421875,3999.0],[0.0,3757.722412109375]]}},{"src":"images/05_perspective/IMG_0014.jpg","meta":{"stage":"perspective","method":"warpPerspective","src_quad":[[0.0,0.0],[2999.0,207.60284423828125],[2712.438232421875,3999.0],[0.0,3757.722412109375]],"dst_size":[3006,3802],"background_color":[100,108,108],"page_type":"text"}}]},{"stem":"IMG_0015","stages":[{"src":"images/00_preprocessed/IMG_0015.jpg","meta":{"stage":"preprocess","hotspot_detected":false}},{"src":"images/01_stitched/IMG_0015.jpg","meta":{"stage":"stitch","group":["IMG_0015"],"non_content_detected":[],"stitch_method":"single","stitch_success":true}},{"src":"images/02_oriented/IMG_0015.jpg","meta":{"stage":"orientation","rotation_applied":270,"orientation_method":"staff_lines+polarity_flip","focus_score":116.53490204132967,"focus_threshold":100.0,"is_blurry":false}},{"src":"images/04_page_detected/IMG_0015.jpg","meta":{"stage":"page_detect","method":"otsu","page_type":"music","quad_corners":[[157.26332092285156,32.82817840576172],[2999.0,160.54685974121094],[2999.0,3999.0],[0.0,3999.0]]}},{"src":"images/05_perspective/IMG_0015.jpg","meta":{"stage":"perspective","method":"warpPerspective","src_quad":[[157.26332092285156,32.82817840576172],[2999.0,160.54685974121094],[2999.0,3999.0],[0.0,3999.0]],"dst_size":[2999,3969],"background_color":[141,152,153],"page_type":"music"}}]},{"stem":"IMG_0016","stages":[{"src":"images/00_preprocessed/IMG_0016.jpg","meta":{"stage":"preprocess","hotspot_detected":false}},{"src":"images/01_stitched/IMG_0016.jpg","meta":{"stage":"stitch","group":["IMG_0016"],"non_content_detected":[],"stitch_method":"single","stitch_success":true}},{"src":"images/02_oriented/IMG_0016.jpg","meta":{"stage":"orientation","rotation_applied":270,"orientation_method":"staff_lines+polarity_flip","focus_score":94.71933879192649,"focus_threshold":100.0,"is_blurry":true}},{"src":"images/04_page_detected/IMG_0016.jpg","meta":{"stage":"page_detect","method":"otsu","page_type":"music","quad_corners":[[0.0,65.32398223876953],[2734.125244140625,0.0],[2892.7333984375,3999.0],[0.0,3999.0]]}},{"src":"images/05_perspective/IMG_0016.jpg","meta":{"stage":"perspective","method":"warpPerspective","src_quad":[[0.0,65.32398223876953],[2734.125244140625,0.0],[2892.7333984375,3999.0],[0.0,3999.0]],"dst_size":[2893,4002],"background_color":[146,152,152],"page_type":"music"}}]},{"stem":"IMG_0017","stages":[{"src":"images/00_preprocessed/IMG_0017.jpg","meta":{"stage":"preprocess","hotspot_detected":false}},{"src":"images/01_stitched/IMG_0017.jpg","meta":{"stage":"stitch","group":["IMG_0017"],"non_content_detected":[],"stitch_method":"single","stitch_success":true}},{"src":"images/02_oriented/IMG_0017.jpg","meta":{"stage":"orientation","rotation_applied":270,"orientation_method":"staff_lines+polarity_flip","focus_score":68.19623954343743,"focus_threshold":100.0,"is_blurry":true}},{"src":"images/04_page_detected/IMG_0017.jpg","meta":{"stage":"page_detect","method":"otsu","page_type":"music","quad_corners":[[332.4256591796875,0.0],[2999.0,178.320556640625],[2999.0,3999.0],[149.43177795410156,3999.0]]}},{"src":"images/05_perspective/IMG_0017.jpg","meta":{"stage":"perspective","method":"warpPerspective","src_quad":[[332.4256591796875,0.0],[2999.0,178.320556640625],[2999.0,3999.0],[149.43177795410156,3999.0]],"dst_size":[2850,4003],"background_color":[124,139,140],"page_type":"music"}}]},{"stem":"IMG_0018","stages":[{"src":"images/00_preprocessed/IMG_0018.jpg","meta":{"stage":"preprocess","hotspot_detected":false}},{"src":"images/01_stitched/IMG_0018.jpg","meta":{"stage":"stitch","group":["IMG_0018"],"non_content_detected":[],"stitch_method":"single","stitch_success":true}},{"src":"images/02_oriented/IMG_0018.jpg","meta":{"stage":"orientation","rotation_applied":270,"orientation_method":"staff_lines+polarity_flip","focus_score":75.48642452619383,"focus_threshold":100.0,"is_blurry":true}},{"src":"images/04_page_detected/IMG_0018.jpg","meta":{"stage":"page_detect","method":"otsu","page_type":"music","quad_corners":[[0.0,0.0],[2837.28759765625,29.2901611328125],[2584.92822265625,3999.0],[0.0,3726.6845703125]]}},{"src":"images/05_perspective/IMG_0018.jpg","meta":{"stage":"perspective","method":"warpPerspective","src_quad":[[0.0,0.0],[2837.28759765625,29.2901611328125],[2584.92822265625,3999.0],[0.0,3726.6845703125]],"dst_size":[2837,3978],"background_color":[116,127,132],"page_type":"music"}}]},{"stem":"IMG_0019","stages":[{"src":"images/00_preprocessed/IMG_0019.jpg","meta":{"stage":"preprocess","hotspot_detected":false}},{"src":"images/01_stitched/IMG_0019.jpg","meta":{"stage":"stitch","group":["IMG_0019"],"non_content_detected":[],"stitch_method":"single","stitch_success":true}},{"src":"images/02_oriented/IMG_0019.jpg","meta":{"stage":"orientation","rotation_applied":270,"orientation_method":"staff_lines+polarity_flip","focus_score":98.5823061788889,"focus_threshold":100.0,"is_blurry":true}},{"src":"images/04_page_detected/IMG_0019.jpg","meta":{"stage":"page_detect","method":"otsu","page_type":"music","quad_corners":[[233.89361572265625,0.0],[2999.0,92.48213195800781],[2968.076904296875,3999.0],[263.1217346191406,3999.0]]}},{"src":"images/05_perspective/IMG_0019.jpg","meta":{"stage":"perspective","method":"warpPerspective","src_quad":[[233.89361572265625,0.0],[2999.0,92.48213195800781],[2968.076904296875,3999.0],[263.1217346191406,3999.0]],"dst_size":[2767,3999],"background_color":[118,125,128],"page_type":"music"}}]},{"stem":"IMG_0020","stages":[{"src":"images/00_preprocessed/IMG_0020.jpg","meta":{"stage":"preprocess","hotspot_detected":false}},{"src":"images/01_stitched/IMG_0020.jpg","meta":{"stage":"stitch","group":["IMG_0020"],"non_content_detected":[],"stitch_method":"single","stitch_success":true}},{"src":"images/02_oriented/IMG_0020.jpg","meta":{"stage":"orientation","rotation_applied":270,"orientation_method":"staff_lines+polarity_flip","focus_score":75.81628289924453,"focus_threshold":100.0,"is_blurry":true}},{"src":"images/04_page_detected/IMG_0020.jpg","meta":{"stage":"page_detect","method":"otsu","page_type":"music","quad_corners":[[103.20008087158203,191.72027587890625],[2842.694091796875,0.0],[2839.639892578125,3999.0],[0.0,3855.930908203125]]}},{"src":"images/05_perspective/IMG_0020.jpg","meta":{"stage":"perspective","method":"warpPerspective","src_quad":[[103.20008087158203,191.72027587890625],[2842.694091796875,0.0],[2839.639892578125,3999.0],[0.0,3855.930908203125]],"dst_size":[2843,3999],"background_color":[79,82,87],"page_type":"music"}}]},{"stem":"IMG_0021","stages":[{"src":"images/00_preprocessed/IMG_0021.jpg","meta":{"stage":"preprocess","hotspot_detected":false}},{"src":"images/01_stitched/IMG_0021.jpg","meta":{"stage":"stitch","group":["IMG_0021"],"non_content_detected":[],"stitch_method":"single","stitch_success":true}},{"src":"images/02_oriented/IMG_0021.jpg","meta":{"stage":"orientation","rotation_applied":270,"orientation_method":"staff_lines+polarity_flip","focus_score":69.61029552788246,"focus_threshold":100.0,"is_blurry":true}},{"src":"images/04_page_detected/IMG_0021.jpg","meta":{"stage":"page_detect","method":"otsu","page_type":"music","quad_corners":[[288.62457275390625,0.0],[2999.0,125.29594421386719],[2940.346923828125,3985.724365234375],[303.0428466796875,3999.0]]}},{"src":"images/05_perspective/IMG_0021.jpg","meta":{"stage":"perspective","method":"warpPerspective","src_quad":[[288.62457275390625,0.0],[2999.0,125.29594421386719],[2940.346923828125,3985.724365234375],[303.0428466796875,3999.0]],"dst_size":[2713,3999],"background_color":[105,121,124],"page_type":"music"}}]},{"stem":"IMG_0022","stages":[{"src":"images/00_preprocessed/IMG_0022.jpg","meta":{"stage":"preprocess","hotspot_detected":false}},{"src":"images/01_stitched/IMG_0022.jpg","meta":{"stage":"stitch","group":["IMG_0022"],"non_content_detected":[],"stitch_method":"single","stitch_success":true}},{"src":"images/02_oriented/IMG_0022.jpg","meta":{"stage":"orientation","rotation_applied":270,"orientation_method":"staff_lines+polarity_flip","focus_score":67.85858833869766,"focus_threshold":100.0,"is_blurry":true}},{"src":"images/04_page_detected/IMG_0022.jpg","meta":{"stage":"page_detect","method":"otsu","page_type":"music","quad_corners":[[24.18999481201172,64.49118041992188],[2807.33837890625,0.0],[2791.0322265625,3999.0],[0.0,3947.970947265625]]}},{"src":"images/05_perspective/IMG_0022.jpg","meta":{"stage":"perspective","method":"warpPerspective","src_quad":[[24.18999481201172,64.49118041992188],[2807.33837890625,0.0],[2791.0322265625,3999.0],[0.0,3947.970947265625]],"dst_size":[2791,3999],"background_color":[138,154,155],"page_type":"music"}}]},{"stem":"IMG_0023","stages":[{"src":"images/00_preprocessed/IMG_0023.jpg","meta":{"stage":"preprocess","hotspot_detected":false}},{"src":"images/01_stitched/IMG_0023.jpg","meta":{"stage":"stitch","group":["IMG_0023"],"non_content_detected":[],"stitch_method":"single","stitch_success":true}},{"src":"images/02_oriented/IMG_0023.jpg","meta":{"stage":"orientation","rotation_applied":270,"orientation_method":"staff_lines+polarity_flip","focus_score":102.20409447084877,"focus_threshold":100.0,"is_blurry":false}},{"src":"images/04_page_detected/IMG_0023.jpg","meta":{"stage":"page_detect","method":"otsu","page_type":"music","quad_corners":[[85.21173095703125,0.0064697265625],[2999.0,88.85563659667969],[2925.843505859375,3999.0],[156.30670166015625,3999.0]]}},{"src":"images/05_perspective/IMG_0023.jpg","meta":{"stage":"perspective","method":"warpPerspective","src_quad":[[85.21173095703125,0.0064697265625],[2999.0,88.85563659667969],[2925.843505859375,3999.0],[156.30670166015625,3999.0]],"dst_size":[2915,4000],"background_color":[134,146,147],"page_type":"music"}}]},{"stem":"IMG_0024","stages":[{"src":"images/00_preprocessed/IMG_0024.jpg","meta":{"stage":"preprocess","hotspot_detected":false}},{"src":"images/01_stitched/IMG_0024.jpg","meta":{"stage":"stitch","group":["IMG_0024"],"non_content_detected":[],"stitch_method":"single","stitch_success":true}},{"src":"images/02_oriented/IMG_0024.jpg","meta":{"stage":"orientation","rotation_applied":270,"orientation_method":"staff_lines+polarity_flip","focus_score":98.738482665574,"focus_threshold":100.0,"is_blurry":true}},{"src":"images/04_page_detected/IMG_0024.jpg","meta":{"stage":"page_detect","method":"otsu","page_type":"music","quad_corners":[[0.0,13.498985290527344],[2734.375244140625,0.0],[2629.275146484375,3999.0],[0.0,3851.535888671875]]}},{"src":"images/05_perspective/IMG_0024.jpg","meta":{"stage":"perspective","method":"warpPerspective","src_quad":[[0.0,13.498985290527344],[2734.375244140625,0.0],[2629.275146484375,3999.0],[0.0,3851.535888671875]],"dst_size":[2734,4000],"background_color":[140,146,150],"page_type":"music"}}]},{"stem":"IMG_0025","stages":[{"src":"images/00_preprocessed/IMG_0025.jpg","meta":{"stage":"preprocess","hotspot_detected":false}},{"src":"images/01_stitched/IMG_0025.jpg","meta":{"stage":"stitch","group":["IMG_0025"],"non_content_detected":[],"stitch_method":"single","stitch_success":true}},{"src":"images/02_oriented/IMG_0025.jpg","meta":{"stage":"orientation","rotation_applied":270,"orientation_method":"staff_lines+polarity_flip","focus_score":69.04913578450494,"focus_threshold":100.0,"is_blurry":true}},{"src":"images/04_page_detected/IMG_0025.jpg","meta":{"stage":"page_detect","method":"otsu","page_type":"music","quad_corners":[[210.88238525390625,0.0],[2999.0,217.890625],[2935.42822265625,3999.0],[191.65029907226562,3999.0]]}},{"src":"images/05_perspective/IMG_0025.jpg","meta":{"stage":"perspective","method":"warpPerspective","src_quad":[[210.88238525390625,0.0],[2999.0,217.890625],[2935.42822265625,3999.0],[191.65029907226562,3999.0]],"dst_size":[2797,3999],"background_color":[130,144,143],"page_type":"music"}}]},{"stem":"IMG_0026","stages":[{"src":"images/00_preprocessed/IMG_0026.jpg","meta":{"stage":"preprocess","hotspot_detected":false}},{"src":"images/01_stitched/IMG_0026.jpg","meta":{"stage":"stitch","group":["IMG_0026"],"non_content_detected":[],"stitch_method":"single","stitch_success":true}},{"src":"images/02_oriented/IMG_0026.jpg","meta":{"stage":"orientation","rotation_applied":270,"orientation_method":"staff_lines+polarity_flip","focus_score":79.51474694093817,"focus_threshold":100.0,"is_blurry":true}},{"src":"images/04_page_detected/IMG_0026.jpg","meta":{"stage":"page_detect","method":"otsu","page_type":"music","quad_corners":[[0.0,35.726768493652344],[2945.60546875,0.0],[2881.6083984375,3999.0],[0.0,3931.02001953125]]}},{"src":"images/05_perspective/IMG_0026.jpg","meta":{"stage":"perspective","method":"warpPerspective","src_quad":[[0.0,35.726768493652344],[2945.60546875,0.0],[2881.6083984375,3999.0],[0.0,3931.02001953125]],"dst_size":[2946,4000],"background_color":[131,147,150],"page_type":"music"}}]},{"stem":"IMG_0027","stages":[{"src":"images/00_preprocessed/IMG_0027.jpg","meta":{"stage":"preprocess","hotspot_detected":false}},{"src":"images/01_stitched/IMG_0027.jpg","meta":{"stage":"stitch","group":["IMG_0027"],"non_content_detected":[],"stitch_method":"single","stitch_success":true}},{"src":"images/02_oriented/IMG_0027.jpg","meta":{"stage":"orientation","rotation_applied":270,"orientation_method":"staff_lines+polarity_flip","focus_score":102.06020835812066,"focus_threshold":100.0,"is_blurry":false}},{"src":"images/04_page_detected/IMG_0027.jpg","meta":{"stage":"page_detect","method":"otsu","page_type":"music","quad_corners":[[218.41622924804688,0.0],[2999.0,95.52579498291016],[2883.57666015625,3961.273681640625],[242.5933837890625,3999.0]]}},{"src":"images/05_perspective/IMG_0027.jpg","meta":{"stage":"perspective","method":"warpPerspective","src_quad":[[218.41622924804688,0.0],[2999.0,95.52579498291016],[2883.57666015625,3961.273681640625],[242.5933837890625,3999.0]],"dst_size":[2782,3999],"background_color":[125,136,138],"page_type":"music"}}]},{"stem":"IMG_0028","stages":[{"src":"images/00_preprocessed/IMG_0028.jpg","meta":{"stage":"preprocess","hotspot_detected":false}},{"src":"images/01_stitched/IMG_0028.jpg","meta":{"stage":"stitch","group":["IMG_0028"],"non_content_detected":[],"stitch_method":"single","stitch_success":true}},{"src":"images/02_oriented/IMG_0028.jpg","meta":{"stage":"orientation","rotation_applied":270,"orientation_method":"staff_lines+polarity_flip","focus_score":92.64289428782492,"focus_threshold":100.0,"is_blurry":true}},{"src":"images/04_page_detected/IMG_0028.jpg","meta":{"stage":"page_detect","method":"otsu","page_type":"music","quad_corners":[[0.0,41.32191467285156],[2686.73291015625,0.0],[2695.64208984375,3999.0],[0.0,3920.413330078125]]}},{"src":"images/05_perspective/IMG_0028.jpg","meta":{"stage":"perspective","method":"warpPerspective","src_quad":[[0.0,41.32191467285156],[2686.73291015625,0.0],[2695.64208984375,3999.0],[0.0,3920.413330078125]],"dst_size":[2697,3999],"background_color":[147,153,154],"page_type":"music"}}]},{"stem":"IMG_0029","stages":[{"src":"images/00_preprocessed/IMG_0029.jpg","meta":{"stage":"preprocess","hotspot_detected":false}},{"src":"images/01_stitched/IMG_0029.jpg","meta":{"stage":"stitch","group":["IMG_0029"],"non_content_detected":[],"stitch_method":"single","stitch_success":true}},{"src":"images/02_oriented/IMG_0029.jpg","meta":{"stage":"orientation","rotation_applied":270,"orientation_method":"staff_lines+polarity_flip","focus_score":58.01161353535801,"focus_threshold":100.0,"is_blurry":true}},{"src":"images/04_page_detected/IMG_0029.jpg","meta":{"stage":"page_detect","method":"otsu","page_type":"music","quad_corners":[[174.1441192626953,16.45574951171875],[2999.0,65.3950424194336],[2999.0,3999.0],[358.7510070800781,3999.0]]}},{"src":"images/05_perspective/IMG_0029.jpg","meta":{"stage":"perspective","method":"warpPerspective","src_quad":[[174.1441192626953,16.45574951171875],[2999.0,65.3950424194336],[2999.0,3999.0],[358.7510070800781,3999.0]],"dst_size":[2825,3987],"background_color":[118,131,139],"page_type":"music"}}]},{"stem":"IMG_0030","stages":[{"src":"images/00_preprocessed/IMG_0030.jpg","meta":{"stage":"preprocess","hotspot_detected":false}},{"src":"images/01_stitched/IMG_0030.jpg","meta":{"stage":"stitch","group":["IMG_0030"],"non_content_detected":[],"stitch_method":"single","stitch_success":true}},{"src":"images/02_oriented/IMG_0030.jpg","meta":{"stage":"orientation","rotation_applied":270,"orientation_method":"staff_lines+polarity_flip","focus_score":58.605762222425064,"focus_threshold":100.0,"is_blurry":true}},{"src":"images/04_page_detected/IMG_0030.jpg","meta":{"stage":"page_detect","method":"otsu","page_type":"music","quad_corners":[[0.0,31.368179321289062],[2980.27783203125,0.0],[2963.699951171875,3999.0],[0.0,3952.51123046875]]}},{"src":"images/05_perspective/IMG_0030.jpg","meta":{"stage":"perspective","method":"warpPerspective","src_quad":[[0.0,31.368179321289062],[2980.27783203125,0.0],[2963.699951171875,3999.0],[0.0,3952.51123046875]],"dst_size":[2980,3999],"background_color":[131,145,146],"page_type":"music"}}]}]};
+const STAGES = BOOK.stages;
+const IMAGES = BOOK.images;
+
+let imgIdx = 0;
+let imgIdxRight = 0;
+let stgIdx = 0;
+let sideLeft = 0;
+let sideRight = Math.min(1, STAGES.length - 1);
+let isSide = false;
+let isMeta = false;
+let isZoomed = false;
+
+const $ = (id) => document.getElementById(id);
+const $tabs = $("tabs");
+const $main = $("main");
+const $metaPanel = $("metaPanel");
+const $metaTitle = $("metaTitle");
+const $metaContent = $("metaContent");
+const $sideToggle = $("sideToggle");
+const $metaToggle = $("metaToggle");
+const $prevImg = $("prevImg");
+const $nextImg = $("nextImg");
+const $imgCounter = $("imgCounter");
+const $imgSelect = $("imgSelect");
+
+/* --- Image selector dropdown --- */
+IMAGES.forEach((img, i) => {
+  const opt = document.createElement("option");
+  opt.value = i;
+  opt.textContent = img.stem;
+  $imgSelect.appendChild(opt);
+});
+$imgSelect.addEventListener("change", () => {
+  setImage(parseInt($imgSelect.value));
+});
+
+$prevImg.addEventListener("click", () => setImage(imgIdx - 1));
+$nextImg.addEventListener("click", () => setImage(imgIdx + 1));
+
+function setImage(i) {
+  imgIdx = clampImg(i);
+  $imgSelect.value = imgIdx;
+  updateImgCounter();
+  buildTabs();
+  render();
+  updateMeta();
+}
+
+function updateImgCounter() {
+  if (isSide && imgIdx !== imgIdxRight) {
+    $imgCounter.textContent =
+      "L: " + IMAGES[imgIdx].stem +
+      " (" + (imgIdx + 1) + "/" + IMAGES.length + ")" +
+      "  R: " + IMAGES[imgIdxRight].stem +
+      " (" + (imgIdxRight + 1) + "/" + IMAGES.length + ")";
+  } else {
+    $imgCounter.textContent = IMAGES[imgIdx].stem +
+      " (" + (imgIdx + 1) + " / " + IMAGES.length + ")";
+  }
+  $prevImg.disabled = imgIdx === 0;
+  $nextImg.disabled = imgIdx === IMAGES.length - 1;
+}
+
+function clampImg(i) {
+  return Math.max(0, Math.min(i, IMAGES.length - 1));
+}
+function cur() { return IMAGES[imgIdx]; }
+function stg(si) {
+  const s = cur().stages[si];
+  return s || null;
+}
+
+const FOOTER_SINGLE =
+  '<kbd>↑</kbd> <kbd>↓</kbd> prev/next image (stage 0) &nbsp;' +
+  '<kbd>PgUp</kbd> <kbd>PgDn</kbd> prev/next image (keep stage) &nbsp;' +
+  '<kbd>←</kbd> <kbd>→</kbd> prev/next stage &nbsp;' +
+  '<kbd>S</kbd> side-by-side &nbsp;' +
+  '<kbd>M</kbd> metadata &nbsp;' +
+  '<kbd>Z</kbd> zoom &nbsp;' +
+  '<kbd>1</kbd>–<kbd>9</kbd> jump to stage';
+const FOOTER_SIDE =
+  '<kbd>↑</kbd> <kbd>↓</kbd> left image (→ stage 0) &nbsp;' +
+  '<kbd>Shift+↑↓</kbd> right image (→ stage 0) &nbsp;' +
+  '<kbd>PgUp</kbd> <kbd>PgDn</kbd> left image (keep stage) &nbsp;' +
+  '<kbd>Shift+PgUp/Dn</kbd> right image (keep stage) &nbsp;' +
+  '<kbd>←</kbd> <kbd>→</kbd> left stage &nbsp;' +
+  '<kbd>Shift+←→</kbd> right stage &nbsp;' +
+  '<kbd>S</kbd> side-by-side &nbsp;' +
+  '<kbd>Z</kbd> zoom &nbsp;' +
+  '<kbd>1</kbd>–<kbd>9</kbd> left &nbsp;' +
+  '<kbd>Shift+1</kbd>–<kbd>9</kbd> right';
+const $footer = $("footer");
+
+/* --- Stage tabs --- */
+function buildTabs() {
+  $tabs.innerHTML = "";
+  STAGES.forEach((label, i) => {
+    const t = document.createElement("div");
+    const existsLeft = IMAGES[imgIdx].stages[i] != null;
+    const existsRight = isSide
+      ? IMAGES[imgIdxRight].stages[i] != null : false;
+    const exists = isSide ? (existsLeft || existsRight) : (stg(i) !== null);
+    let cls = "tab";
+    if (isSide) {
+      const isL = i === sideLeft;
+      const isR = i === sideRight;
+      if (isL && isR) cls += " active-both";
+      else if (isL) cls += " active-left";
+      else if (isR) cls += " active-right";
+    } else {
+      if (i === stgIdx) cls += " active";
+    }
+    if (!exists) cls += " missing";
+    t.className = cls;
+    t.textContent = label;
+    if (exists) {
+      t.addEventListener("click", (ev) => {
+        if (isSide) {
+          if (ev.shiftKey) { setSideRight(i); }
+          else { setSideLeft(i); }
+        } else {
+          setStage(i);
+        }
+      });
+    }
+    $tabs.appendChild(t);
+  });
+}
+
+function setStage(i) {
+  stgIdx = Math.max(0, Math.min(i, STAGES.length - 1));
+  buildTabs();
+  render();
+  updateMeta();
+}
+
+function setSideLeft(i) {
+  sideLeft = Math.max(0, Math.min(i, STAGES.length - 1));
+  stgIdx = sideLeft;
+  buildTabs();
+  render();
+  updateMeta();
+}
+
+function setSideRight(i) {
+  sideRight = Math.max(0, Math.min(i, STAGES.length - 1));
+  buildTabs();
+  render();
+  updateMeta();
+}
+
+/* --- Rendering --- */
+function render() {
+  if (isSide) renderSide(); else renderSingle();
+}
+
+function imgTag(si) {
+  const s = stg(si);
+  if (!s) return '<div style="color:#666;padding:40px">' +
+    'No output for this stage</div>';
+  return '<img src="' + s.src + '"' +
+    (isZoomed ? ' class="zoomed"' : "") + ">";
+}
+
+function renderSingle() {
+  $main.innerHTML =
+    '<div class="view-single">' +
+    imgTag(stgIdx) + "</div>";
+}
+
+function imgTagFor(imgI, stgI) {
+  const s = IMAGES[imgI].stages[stgI];
+  if (!s) return '<div style="color:#666;padding:40px">' +
+    'No output for this stage</div>';
+  return '<img src="' + s.src + '"' +
+    (isZoomed ? ' class="zoomed"' : "") + ">";
+}
+
+function renderSide() {
+  if (sideLeft >= STAGES.length) sideLeft = 0;
+  if (sideRight >= STAGES.length)
+    sideRight = Math.min(1, STAGES.length - 1);
+
+  function pane(imgI, stgI, side) {
+    const labelCls = "pane-label pane-label-" + side;
+    const prefix = side === "left" ? "L" : "R";
+    const stem = IMAGES[imgI].stem;
+    const labelText = prefix + ": " + STAGES[stgI] + " — " + stem;
+    return '<div class="pane">' +
+      '<div class="pane-body">' +
+      '<span class="' + labelCls + '">' + labelText + '</span>' +
+      imgTagFor(imgI, stgI) +
+      "</div></div>";
+  }
+
+  $main.innerHTML = '<div class="view-side">' +
+    pane(imgIdx, sideLeft, "left") +
+    pane(imgIdxRight, sideRight, "right") +
+    "</div>";
+}
+
+function updateMeta() {
+  const s = stg(stgIdx);
+  $metaTitle.textContent = STAGES[stgIdx] +
+    " — " + cur().stem;
+  $metaContent.textContent = s && s.meta
+    ? JSON.stringify(s.meta, null, 2) : "(no metadata)";
+}
+
+/* --- Toggles --- */
+function toggleSide() {
+  isSide = !isSide;
+  $sideToggle.checked = isSide;
+  if (isSide) {
+    sideLeft = Math.max(0, stgIdx - 1);
+    sideRight = stgIdx;
+    imgIdxRight = imgIdx;
+    isMeta = false;
+    $metaToggle.checked = false;
+    $metaPanel.classList.remove("open");
+  }
+  updateFooter();
+  buildTabs();
+  render();
+}
+function toggleMeta() {
+  isMeta = !isMeta;
+  $metaToggle.checked = isMeta;
+  $metaPanel.classList.toggle("open", isMeta);
+}
+function toggleZoom() { isZoomed = !isZoomed; render(); }
+
+function updateFooter() {
+  $footer.innerHTML = isSide ? FOOTER_SIDE : FOOTER_SINGLE;
+}
+
+$sideToggle.addEventListener("change", () => {
+  isSide = $sideToggle.checked;
+  if (isSide) {
+    sideLeft = Math.max(0, stgIdx - 1);
+    sideRight = stgIdx;
+    imgIdxRight = imgIdx;
+    isMeta = false;
+    $metaToggle.checked = false;
+    $metaPanel.classList.remove("open");
+  }
+  updateFooter();
+  buildTabs();
+  render();
+  $sideToggle.blur();
+});
+$metaToggle.addEventListener("change", () => {
+  isMeta = $metaToggle.checked;
+  $metaPanel.classList.toggle("open", isMeta);
+  $metaToggle.blur();
+});
+
+/* --- Keyboard --- */
+document.addEventListener("keydown", (e) => {
+  const tag = (e.target || {}).tagName;
+  if (tag === "SELECT" || tag === "INPUT") return;
+
+  if (e.key === "ArrowLeft") {
+    e.preventDefault();
+    if (isSide) {
+      if (e.shiftKey) setSideRight(sideRight - 1);
+      else setSideLeft(sideLeft - 1);
+    } else { setStage(stgIdx - 1); }
+  } else if (e.key === "ArrowRight") {
+    e.preventDefault();
+    if (isSide) {
+      if (e.shiftKey) setSideRight(sideRight + 1);
+      else setSideLeft(sideLeft + 1);
+    } else { setStage(stgIdx + 1); }
+  } else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+    e.preventDefault();
+    const dir = e.key === "ArrowUp" ? -1 : 1;
+    if (isSide) {
+      if (e.shiftKey) {
+        sideRight = 0;
+        imgIdxRight = clampImg(imgIdxRight + dir);
+        updateImgCounter(); buildTabs(); render(); updateMeta();
+      } else {
+        sideLeft = 0;
+        setImage(imgIdx + dir);
+      }
+    } else {
+      stgIdx = 0;
+      setImage(imgIdx + dir);
+    }
+  } else if (e.key === "PageUp" || e.key === "PageDown") {
+    e.preventDefault();
+    const dir = e.key === "PageUp" ? -1 : 1;
+    if (isSide) {
+      if (e.shiftKey) {
+        imgIdxRight = clampImg(imgIdxRight + dir);
+        updateImgCounter(); buildTabs(); render(); updateMeta();
+      } else {
+        setImage(imgIdx + dir);
+      }
+    } else {
+      setImage(imgIdx + dir);
+    }
+  } else if (e.key === "s" && !e.shiftKey) {
+    toggleSide();
+  } else if ((e.key === "m" || e.key === "M") && !e.shiftKey) {
+    toggleMeta();
+  } else if ((e.key === "z" || e.key === "Z") && !e.shiftKey) {
+    toggleZoom();
+  } else if (e.code && e.code >= "Digit1" && e.code <= "Digit9") {
+    const idx = parseInt(e.code.charAt(5)) - 1;
+    if (idx < STAGES.length && stg(idx)) {
+      if (isSide) {
+        if (e.shiftKey) setSideRight(idx);
+        else setSideLeft(idx);
+      } else {
+        setStage(idx);
+      }
+    }
+  }
+});
+
+/* --- Init --- */
+setImage(imgIdx);
+</script>
+</body>
+</html>
