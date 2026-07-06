@@ -604,7 +604,8 @@ footer kbd {
 
 <footer>
   <span id="footer">
-    <kbd>PgUp</kbd> <kbd>PgDn</kbd> prev/next image &nbsp;
+    <kbd>\u2191</kbd> <kbd>\u2193</kbd> prev/next image (stage 0) &nbsp;
+    <kbd>PgUp</kbd> <kbd>PgDn</kbd> prev/next image (keep stage) &nbsp;
     <kbd>\u2190</kbd> <kbd>\u2192</kbd> prev/next stage &nbsp;
     <kbd>S</kbd> side-by-side &nbsp;
     <kbd>M</kbd> metadata &nbsp;
@@ -622,6 +623,7 @@ const STAGES = BOOK.stages;
 const IMAGES = BOOK.images;
 
 let imgIdx = __INITIAL_IDX__;
+let imgIdxRight = __INITIAL_IDX__;
 let stgIdx = 0;
 let sideLeft = 0;
 let sideRight = Math.min(1, STAGES.length - 1);
@@ -657,17 +659,32 @@ $prevImg.addEventListener("click", () => setImage(imgIdx - 1));
 $nextImg.addEventListener("click", () => setImage(imgIdx + 1));
 
 function setImage(i) {
-  imgIdx = Math.max(0, Math.min(i, IMAGES.length - 1));
+  imgIdx = clampImg(i);
   $imgSelect.value = imgIdx;
-  $imgCounter.textContent = IMAGES[imgIdx].stem +
-    " (" + (imgIdx + 1) + " / " + IMAGES.length + ")";
-  $prevImg.disabled = imgIdx === 0;
-  $nextImg.disabled = imgIdx === IMAGES.length - 1;
+  updateImgCounter();
   buildTabs();
   render();
   updateMeta();
 }
 
+function updateImgCounter() {
+  if (isSide && imgIdx !== imgIdxRight) {
+    $imgCounter.textContent =
+      "L: " + IMAGES[imgIdx].stem +
+      " (" + (imgIdx + 1) + "/" + IMAGES.length + ")" +
+      "  R: " + IMAGES[imgIdxRight].stem +
+      " (" + (imgIdxRight + 1) + "/" + IMAGES.length + ")";
+  } else {
+    $imgCounter.textContent = IMAGES[imgIdx].stem +
+      " (" + (imgIdx + 1) + " / " + IMAGES.length + ")";
+  }
+  $prevImg.disabled = imgIdx === 0;
+  $nextImg.disabled = imgIdx === IMAGES.length - 1;
+}
+
+function clampImg(i) {
+  return Math.max(0, Math.min(i, IMAGES.length - 1));
+}
 function cur() { return IMAGES[imgIdx]; }
 function stg(si) {
   const s = cur().stages[si];
@@ -675,20 +692,24 @@ function stg(si) {
 }
 
 const FOOTER_SINGLE =
-  '<kbd>PgUp</kbd> <kbd>PgDn</kbd> prev/next image &nbsp;' +
+  '<kbd>\u2191</kbd> <kbd>\u2193</kbd> prev/next image (stage 0) &nbsp;' +
+  '<kbd>PgUp</kbd> <kbd>PgDn</kbd> prev/next image (keep stage) &nbsp;' +
   '<kbd>\u2190</kbd> <kbd>\u2192</kbd> prev/next stage &nbsp;' +
   '<kbd>S</kbd> side-by-side &nbsp;' +
   '<kbd>M</kbd> metadata &nbsp;' +
   '<kbd>Z</kbd> zoom &nbsp;' +
   '<kbd>1</kbd>\u2013<kbd>9</kbd> jump to stage';
 const FOOTER_SIDE =
-  '<kbd>PgUp</kbd> <kbd>PgDn</kbd> prev/next image &nbsp;' +
-  '<kbd>\u2190</kbd> <kbd>\u2192</kbd> left pane stage &nbsp;' +
-  '<kbd>Shift+\u2190</kbd> <kbd>Shift+\u2192</kbd> right pane stage &nbsp;' +
+  '<kbd>\u2191</kbd> <kbd>\u2193</kbd> left image (\u2192 stage 0) &nbsp;' +
+  '<kbd>Shift+\u2191\u2193</kbd> right image (\u2192 stage 0) &nbsp;' +
+  '<kbd>PgUp</kbd> <kbd>PgDn</kbd> left image (keep stage) &nbsp;' +
+  '<kbd>Shift+PgUp/Dn</kbd> right image (keep stage) &nbsp;' +
+  '<kbd>\u2190</kbd> <kbd>\u2192</kbd> left stage &nbsp;' +
+  '<kbd>Shift+\u2190\u2192</kbd> right stage &nbsp;' +
   '<kbd>S</kbd> side-by-side &nbsp;' +
   '<kbd>Z</kbd> zoom &nbsp;' +
-  '<kbd>1</kbd>\u2013<kbd>9</kbd> left pane &nbsp;' +
-  '<kbd>Shift+1</kbd>\u2013<kbd>9</kbd> right pane';
+  '<kbd>1</kbd>\u2013<kbd>9</kbd> left &nbsp;' +
+  '<kbd>Shift+1</kbd>\u2013<kbd>9</kbd> right';
 const $footer = $("footer");
 
 /* --- Stage tabs --- */
@@ -696,7 +717,10 @@ function buildTabs() {
   $tabs.innerHTML = "";
   STAGES.forEach((label, i) => {
     const t = document.createElement("div");
-    const exists = stg(i) !== null;
+    const existsLeft = IMAGES[imgIdx].stages[i] != null;
+    const existsRight = isSide
+      ? IMAGES[imgIdxRight].stages[i] != null : false;
+    const exists = isSide ? (existsLeft || existsRight) : (stg(i) !== null);
     let cls = "tab";
     if (isSide) {
       const isL = i === sideLeft;
@@ -765,24 +789,34 @@ function renderSingle() {
     imgTag(stgIdx) + "</div>";
 }
 
+function imgTagFor(imgI, stgI) {
+  const s = IMAGES[imgI].stages[stgI];
+  if (!s) return '<div style="color:#666;padding:40px">' +
+    'No output for this stage</div>';
+  return '<img src="' + s.src + '"' +
+    (isZoomed ? ' class="zoomed"' : "") + ">";
+}
+
 function renderSide() {
   if (sideLeft >= STAGES.length) sideLeft = 0;
   if (sideRight >= STAGES.length)
     sideRight = Math.min(1, STAGES.length - 1);
 
-  function pane(idx, side) {
+  function pane(imgI, stgI, side) {
     const labelCls = "pane-label pane-label-" + side;
     const prefix = side === "left" ? "L" : "R";
-    const labelText = prefix + ": " + STAGES[idx];
+    const stem = IMAGES[imgI].stem;
+    const labelText = prefix + ": " + STAGES[stgI] + " — " + stem;
     return '<div class="pane">' +
       '<div class="pane-body">' +
       '<span class="' + labelCls + '">' + labelText + '</span>' +
-      imgTag(idx) +
+      imgTagFor(imgI, stgI) +
       "</div></div>";
   }
 
   $main.innerHTML = '<div class="view-side">' +
-    pane(sideLeft, "left") + pane(sideRight, "right") +
+    pane(imgIdx, sideLeft, "left") +
+    pane(imgIdxRight, sideRight, "right") +
     "</div>";
 }
 
@@ -801,6 +835,7 @@ function toggleSide() {
   if (isSide) {
     sideLeft = Math.max(0, stgIdx - 1);
     sideRight = stgIdx;
+    imgIdxRight = imgIdx;
     isMeta = false;
     $metaToggle.checked = false;
     $metaPanel.classList.remove("open");
@@ -825,6 +860,7 @@ $sideToggle.addEventListener("change", () => {
   if (isSide) {
     sideLeft = Math.max(0, stgIdx - 1);
     sideRight = stgIdx;
+    imgIdxRight = imgIdx;
     isMeta = false;
     $metaToggle.checked = false;
     $metaPanel.classList.remove("open");
@@ -857,14 +893,35 @@ document.addEventListener("keydown", (e) => {
       if (e.shiftKey) setSideRight(sideRight + 1);
       else setSideLeft(sideLeft + 1);
     } else { setStage(stgIdx + 1); }
-  } else if (e.key === "PageUp") {
+  } else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
     e.preventDefault();
-    stgIdx = 0; sideLeft = 0; sideRight = Math.min(1, STAGES.length - 1);
-    setImage(imgIdx - 1);
-  } else if (e.key === "PageDown") {
+    const dir = e.key === "ArrowUp" ? -1 : 1;
+    if (isSide) {
+      if (e.shiftKey) {
+        sideRight = 0;
+        imgIdxRight = clampImg(imgIdxRight + dir);
+        updateImgCounter(); buildTabs(); render(); updateMeta();
+      } else {
+        sideLeft = 0;
+        setImage(imgIdx + dir);
+      }
+    } else {
+      stgIdx = 0;
+      setImage(imgIdx + dir);
+    }
+  } else if (e.key === "PageUp" || e.key === "PageDown") {
     e.preventDefault();
-    stgIdx = 0; sideLeft = 0; sideRight = Math.min(1, STAGES.length - 1);
-    setImage(imgIdx + 1);
+    const dir = e.key === "PageUp" ? -1 : 1;
+    if (isSide) {
+      if (e.shiftKey) {
+        imgIdxRight = clampImg(imgIdxRight + dir);
+        updateImgCounter(); buildTabs(); render(); updateMeta();
+      } else {
+        setImage(imgIdx + dir);
+      }
+    } else {
+      setImage(imgIdx + dir);
+    }
   } else if (e.key === "s" && !e.shiftKey) {
     toggleSide();
   } else if ((e.key === "m" || e.key === "M") && !e.shiftKey) {
