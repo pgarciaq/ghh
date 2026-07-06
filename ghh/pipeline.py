@@ -156,7 +156,8 @@ class BaseStage(ABC):
     number: int              # e.g., 0
     checkpoint_name: str     # e.g., "00_preprocessed"
     error_class: str         # "skippable", "critical", "fatal"
-    writes_image: bool = True  # False → symlink to source image (saves disk)
+    writes_image: bool = True   # False → symlink to source image (saves disk)
+    symlink_unchanged: bool = False  # True → symlink when is_unchanged() returns True
 
     @abstractmethod
     def process_image(
@@ -173,6 +174,15 @@ class BaseStage(ABC):
     def should_skip(self, cfg: Config) -> bool:
         """Whether this stage should be skipped entirely (profile/flags)."""
         return cfg.should_skip_stage(self.name)
+
+    def is_unchanged(self, metadata: dict) -> bool:
+        """Whether the processed image is identical to the input.
+
+        Override in subclasses that set ``symlink_unchanged = True``
+        to inspect *metadata* and return ``True`` when the stage was
+        a no-op for this image.
+        """
+        return False
 
     @staticmethod
     def count_images(input_dir: Path) -> int:
@@ -285,12 +295,12 @@ class BaseStage(ABC):
 
             processed_img, metadata = self.process_image(img, metadata, cfg)
 
-            if self.writes_image:
-                save_checkpoint(
-                    processed_img, stage_dir, stem,
-                    metadata=metadata or None,
-                )
-            else:
+            use_symlink = (
+                not self.writes_image
+                or (self.symlink_unchanged and self.is_unchanged(metadata))
+            )
+
+            if use_symlink:
                 out_png = stage_dir / f"{stem}.png"
                 if out_png.is_symlink() or out_png.exists():
                     out_png.unlink()
@@ -300,6 +310,11 @@ class BaseStage(ABC):
                     sidecar.write_text(
                         json.dumps(metadata, indent=2, default=str),
                     )
+            else:
+                save_checkpoint(
+                    processed_img, stage_dir, stem,
+                    metadata=metadata or None,
+                )
 
             if lock:
                 with lock:

@@ -8,6 +8,7 @@ atomic checkpoints and per-image state tracking.
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 
@@ -60,12 +61,14 @@ class StitchStage(BaseStage):
         if not image_files:
             return result
 
-        # Load all images into memory
+        # Load all images into memory and track source paths
         all_images: dict[str, np.ndarray] = {}
+        source_paths: dict[str, Path] = {}
         for p in image_files:
             img = cv2.imread(str(p), cv2.IMREAD_UNCHANGED)
             if img is not None:
                 all_images[p.stem] = img
+                source_paths[p.stem] = p
 
         # Filter out excluded images
         exclude_stems = set()
@@ -124,17 +127,34 @@ class StitchStage(BaseStage):
                     group_images = kept
 
                 if len(group_images) > 1:
-                    # Stitch
-                    stitched, method, success = stitch_images(group_images, cfg)
+                    stitched, method, success = stitch_images(
+                        group_images, cfg,
+                    )
                     meta["stitch_method"] = method
                     meta["stitch_success"] = success
-                    save_checkpoint(stitched, stage_dir, output_stem, metadata=meta)
+                    save_checkpoint(
+                        stitched, stage_dir, output_stem,
+                        metadata=meta,
+                    )
                 else:
-                    # Single image (standalone or after dedup)
                     single_name = next(iter(group_images))
                     meta["stitch_method"] = "single"
                     meta["stitch_success"] = True
-                    save_checkpoint(group_images[single_name], stage_dir, output_stem, metadata=meta)
+                    src = source_paths.get(single_name)
+                    if src is not None:
+                        out_png = stage_dir / f"{output_stem}.png"
+                        if out_png.is_symlink() or out_png.exists():
+                            out_png.unlink()
+                        out_png.symlink_to(src.resolve())
+                    else:
+                        save_checkpoint(
+                            group_images[single_name],
+                            stage_dir, output_stem,
+                        )
+                    sidecar = stage_dir / f"{output_stem}.json"
+                    sidecar.write_text(
+                        json.dumps(meta, indent=2, default=str),
+                    )
 
                 state.mark_image_done(self.checkpoint_name, output_stem)
                 result.processed += 1
