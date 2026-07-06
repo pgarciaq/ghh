@@ -537,6 +537,188 @@ code, .code-block {
   color: rgba(217,205,184,0.5);
 }
 
+/* --- Documentation Pages --- */
+.docs-layout {
+  display: flex;
+  min-height: 100vh;
+  padding-top: 56px;
+}
+.docs-sidebar {
+  width: 240px;
+  min-width: 240px;
+  background: var(--parchment);
+  border-right: 1px solid var(--parchment-dark);
+  padding: 2rem 1.2rem;
+  position: sticky;
+  top: 56px;
+  height: calc(100vh - 56px);
+  overflow-y: auto;
+}
+.sidebar-title {
+  font-family: var(--serif);
+  font-size: 1rem;
+  color: var(--ink);
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--parchment-dark);
+}
+.sidebar-nav {
+  list-style: none;
+  margin-bottom: 2rem;
+}
+.sidebar-nav li { margin-bottom: 0.3rem; }
+.sidebar-nav a {
+  display: block;
+  padding: 0.4rem 0.8rem;
+  color: var(--ink-light);
+  text-decoration: none;
+  font-size: 0.88rem;
+  border-radius: 4px;
+  transition: all 0.15s;
+}
+.sidebar-nav a:hover {
+  background: var(--parchment-dark);
+  color: var(--ink);
+}
+.sidebar-nav a.active {
+  background: var(--red-staff);
+  color: #fff;
+  font-weight: 600;
+}
+.sidebar-back {
+  display: block;
+  color: var(--ink-light);
+  text-decoration: none;
+  font-size: 0.82rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--parchment-dark);
+}
+.sidebar-back:hover { color: var(--red-staff); }
+
+.docs-content {
+  flex: 1;
+  max-width: 820px;
+  padding: 2.5rem 3rem;
+  line-height: 1.8;
+}
+.docs-page-title {
+  font-family: var(--serif);
+  font-size: 2rem;
+  color: var(--ink);
+  margin-bottom: 1.5rem;
+  padding-bottom: 0.8rem;
+  border-bottom: 2px solid var(--parchment-dark);
+}
+.docs-content h2 {
+  font-family: var(--serif);
+  font-size: 1.5rem;
+  color: var(--ink);
+  margin-top: 2.5rem;
+  margin-bottom: 0.8rem;
+  padding-bottom: 0.3rem;
+  border-bottom: 1px solid var(--parchment-dark);
+}
+.docs-content h3 {
+  font-family: var(--serif);
+  font-size: 1.2rem;
+  color: var(--ink);
+  margin-top: 2rem;
+  margin-bottom: 0.5rem;
+}
+.docs-content p {
+  margin-bottom: 1rem;
+  color: var(--ink-light);
+}
+.docs-content ul, .docs-content ol {
+  margin-bottom: 1rem;
+  padding-left: 1.5rem;
+  color: var(--ink-light);
+}
+.docs-content li { margin-bottom: 0.4rem; }
+.docs-content code {
+  font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+  background: var(--parchment);
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 0.88em;
+  color: var(--red-staff);
+}
+.docs-content pre {
+  background: var(--ink);
+  color: var(--parchment-light);
+  padding: 1.2rem 1.5rem;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin-bottom: 1.5rem;
+  border: 1px solid var(--ink-light);
+  line-height: 1.6;
+}
+.docs-content pre code {
+  background: none;
+  padding: 0;
+  color: inherit;
+  font-size: 0.85rem;
+}
+.docs-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 1.5rem;
+  font-size: 0.9rem;
+}
+.docs-content th {
+  background: var(--parchment);
+  text-align: left;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--parchment-dark);
+  font-weight: 600;
+  color: var(--ink);
+}
+.docs-content td {
+  padding: 0.5rem 0.8rem;
+  border: 1px solid var(--parchment-dark);
+  color: var(--ink-light);
+}
+.docs-content blockquote {
+  border-left: 3px solid var(--gold);
+  padding: 0.8rem 1.2rem;
+  margin: 1rem 0 1.5rem;
+  background: rgba(184,134,11,0.06);
+  color: var(--ink-light);
+  font-style: italic;
+}
+
+.docs-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.2rem;
+  margin-top: 2rem;
+}
+.docs-card {
+  display: block;
+  padding: 1.5rem;
+  background: var(--parchment);
+  border: 1px solid var(--parchment-dark);
+  border-radius: 6px;
+  text-decoration: none;
+  transition: box-shadow 0.2s, transform 0.2s;
+}
+.docs-card:hover {
+  box-shadow: 0 4px 16px rgba(44,24,16,0.1);
+  transform: translateY(-2px);
+}
+.docs-card h3 {
+  font-family: var(--serif);
+  font-size: 1.1rem;
+  color: var(--ink);
+  margin-bottom: 0.4rem;
+}
+.docs-card p {
+  font-size: 0.88rem;
+  color: var(--ink-light);
+  line-height: 1.5;
+  margin: 0;
+}
+
 /* --- Responsive --- */
 @media (max-width: 768px) {
   .hero h1 { font-size: 2.2rem; }
@@ -548,4 +730,6 @@ code, .code-block {
   .nav-links { display: none; }
   section { padding: 3rem 1.2rem; }
   .hero { padding: 7rem 1.2rem 3rem; }
+  .docs-sidebar { display: none; }
+  .docs-content { padding: 2rem 1.2rem; }
 }

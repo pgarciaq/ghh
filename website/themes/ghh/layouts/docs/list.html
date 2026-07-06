@@ -1,0 +1,41 @@
+{{ define "main" }}
+
+<nav class="site-nav">
+  <div class="nav-inner">
+    <a href="{{ "/" | relURL }}" class="nav-brand">Guido's Helping Hand</a>
+    <ul class="nav-links">
+      <li><a href="{{ "docs/" | relURL }}">Docs</a></li>
+      <li><a href="{{ "/" | relURL }}#features">Features</a></li>
+      <li><a href="{{ "/" | relURL }}#pipeline">Pipeline</a></li>
+      <li><a href="{{ .Site.Params.githubRepo }}" target="_blank">GitHub</a></li>
+    </ul>
+  </div>
+</nav>
+
+<div class="docs-layout">
+  <aside class="docs-sidebar">
+    <h3 class="sidebar-title">Documentation</h3>
+    <ul class="sidebar-nav">
+      {{ range .Pages.ByWeight }}
+        <li><a href="{{ .RelPermalink }}">{{ .Title }}</a></li>
+      {{ end }}
+    </ul>
+    <a href="{{ "/" | relURL }}" class="sidebar-back">&larr; Back to home</a>
+  </aside>
+
+  <main class="docs-content">
+    <h1 class="docs-page-title">{{ .Title }}</h1>
+    {{ .Content }}
+
+    <div class="docs-cards">
+      {{ range .Pages.ByWeight }}
+        <a href="{{ .RelPermalink }}" class="docs-card">
+          <h3>{{ .Title }}</h3>
+          <p>{{ .Description }}</p>
+        </a>
+      {{ end }}
+    </div>
+  </main>
+</div>
+
+{{ end }}
