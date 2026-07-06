@@ -46,7 +46,7 @@ def estimate_background(
 def trim_to_content(
     img: np.ndarray,
     bg_color: tuple[int, ...] | None = None,
-    margin_frac: float = 0.02,
+    margin_frac: float = 0.0,
     threshold: int = 30,
 ) -> np.ndarray:
     """Trim background-colored borders and add uniform margin padding.
