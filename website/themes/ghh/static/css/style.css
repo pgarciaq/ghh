@@ -207,98 +207,59 @@ section {
   line-height: 1.6;
 }
 
-/* --- Before/After Slider --- */
-.sliders-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(480px, 1fr));
-  gap: 2rem;
+/* --- Before/After Side-by-Side --- */
+.ba-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 3rem;
 }
-.slider-container {
+.ba-pair {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.ba-card {
+  position: relative;
   border-radius: 6px;
   overflow: hidden;
   border: 2px solid var(--parchment-dark);
   box-shadow: 0 4px 20px rgba(44,24,16,0.1);
+  background: var(--parchment);
+  flex-shrink: 0;
 }
-.comparison-slider {
-  position: relative;
-  width: 100%;
-  overflow: hidden;
-  cursor: col-resize;
-  user-select: none;
-  -webkit-user-select: none;
-}
-.comparison-slider img {
+.ba-card img {
   display: block;
-  width: 100%;
-  height: auto;
+  height: 360px;
+  width: auto;
 }
-.comparison-slider .after-wrap {
+.ba-label {
   position: absolute;
-  top: 0; left: 0; bottom: 0;
-  width: 50%;
-  overflow: hidden;
-}
-.comparison-slider .after-wrap img {
-  position: absolute;
-  top: 0; left: 0;
-  width: 200%;
-  max-width: none;
-  height: auto;
-}
-.slider-handle {
-  position: absolute;
-  top: 0; bottom: 0;
-  left: 50%;
-  width: 4px;
-  background: var(--red-staff);
-  transform: translateX(-50%);
-  z-index: 5;
-  cursor: col-resize;
-}
-.slider-handle::before,
-.slider-handle::after {
-  content: '';
-  position: absolute;
-  top: 50%;
-  width: 12px; height: 12px;
-  border: 2px solid #fff;
-  background: var(--red-staff);
-  border-radius: 50%;
-}
-.slider-handle::before {
-  left: -14px;
-  transform: translateY(-50%);
-}
-.slider-handle::after {
-  right: -14px;
-  transform: translateY(-50%);
-}
-.slider-labels {
-  position: absolute;
-  top: 12px; left: 0; right: 0;
-  display: flex;
-  justify-content: space-between;
-  padding: 0 12px;
-  pointer-events: none;
-  z-index: 6;
-}
-.slider-label {
+  top: 10px; left: 10px;
   background: rgba(44,24,16,0.75);
   color: #fff;
   padding: 3px 12px;
   border-radius: 3px;
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   font-weight: 600;
   letter-spacing: 0.05em;
   text-transform: uppercase;
+  z-index: 2;
 }
-.slider-caption {
-  padding: 0.8rem 1rem;
+.ba-arrow {
+  font-size: 2rem;
+  color: var(--red-staff);
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.ba-caption {
+  width: 100%;
+  text-align: center;
   font-size: 0.88rem;
   color: var(--ink-light);
-  background: var(--parchment-light);
-  border-top: 1px solid var(--parchment-dark);
-  text-align: center;
+  margin-top: -0.5rem;
+  flex-basis: 100%;
 }
 
 /* --- Pipeline Diagram --- */
@@ -732,7 +693,9 @@ code, .code-block {
   .hero h1 { font-size: 2.2rem; }
   .hero .tagline { font-size: 1.05rem; }
   .section-title { font-size: 1.8rem; }
-  .sliders-grid { grid-template-columns: 1fr; }
+  .ba-pair { flex-direction: column; }
+  .ba-arrow { transform: rotate(90deg); }
+  .ba-card img { height: auto; width: 100%; max-width: 400px; }
   .getting-started-content { grid-template-columns: 1fr; }
   .contact-grid { grid-template-columns: 1fr; }
   .demo-grid { grid-template-columns: 1fr; }
