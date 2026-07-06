@@ -117,17 +117,22 @@ Keyboard navigation lets you quickly flip between images and stages.
 
 | Key | Action |
 |-----|--------|
-| **PgUp** / **PgDn** | Previous / next image |
+| **Up** / **Down** | Previous / next image (reset to stage 0) |
+| **PgUp** / **PgDn** | Previous / next image (keep current stage) |
 | **Left** / **Right** | Previous / next stage |
 | **S** | Toggle side-by-side mode |
 | **M** | Toggle metadata panel |
 | **Z** | Toggle zoom |
 | **1**--**9** | Jump to stage by number |
 
-In side-by-side mode:
+In side-by-side mode, each pane can show a different image:
 
 | Key | Action |
 |-----|--------|
+| **Up** / **Down** | Left pane: previous / next image (reset to stage 0) |
+| **Shift+Up** / **Shift+Down** | Right pane: previous / next image (reset to stage 0) |
+| **PgUp** / **PgDn** | Left pane: previous / next image (keep stage) |
+| **Shift+PgUp** / **Shift+PgDn** | Right pane: previous / next image (keep stage) |
 | **Left** / **Right** | Change left pane stage |
 | **Shift+Left** / **Shift+Right** | Change right pane stage |
 | **1**--**9** | Set left pane stage |

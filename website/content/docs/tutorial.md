@@ -144,10 +144,11 @@ ghh compare /path/to/photos_output
 
 This opens an interactive HTML viewer where you can:
 
-- Navigate between images with **PgUp** / **PgDn**
-- Switch between stages with the **left** / **right** arrows
-- Press **S** for side-by-side view (left/right arrows control the left
-  pane, Shift+arrows control the right pane)
+- Navigate between images with **Up** / **Down** arrows (resets to stage 0)
+  or **PgUp** / **PgDn** (keeps current stage)
+- Switch between stages with the **Left** / **Right** arrows
+- Press **S** for side-by-side view -- each pane can show a different image
+  and stage independently (Shift variants control the right pane)
 - Press **M** to view metadata for each stage
 - Press **Z** to toggle zoom
 
