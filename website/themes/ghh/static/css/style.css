@@ -270,6 +270,10 @@ section {
   justify-content: center;
   margin-bottom: 2rem;
 }
+.pipeline-row {
+  flex-wrap: nowrap;
+  margin-bottom: 0.8rem;
+}
 .stage-chip {
   display: flex;
   align-items: center;

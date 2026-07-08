@@ -228,7 +228,7 @@
       output to a numbered directory, enabling inspection and resumability.
     </p>
 
-    <div class="pipeline-stages">
+    <div class="pipeline-stages pipeline-row">
       <div class="stage-chip done"><span class="stage-dot"></span> 0&ensp;Preprocess</div>
       <span class="pipeline-arrow">&rarr;</span>
       <div class="stage-chip done"><span class="stage-dot"></span> 1&ensp;Stitch</div>
@@ -238,18 +238,19 @@
       <div class="stage-chip done"><span class="stage-dot"></span> 3&ensp;Lens Correct</div>
       <span class="pipeline-arrow">&rarr;</span>
       <div class="stage-chip done"><span class="stage-dot"></span> 4&ensp;Page Detect</div>
-      <span class="pipeline-arrow">&rarr;</span>
+    </div>
+    <div class="pipeline-stages pipeline-row">
       <div class="stage-chip done"><span class="stage-dot"></span> 5&ensp;Perspective</div>
       <span class="pipeline-arrow">&rarr;</span>
       <div class="stage-chip pending"><span class="stage-dot"></span> 6&ensp;Content Area</div>
-    </div>
-    <div class="pipeline-stages">
+      <span class="pipeline-arrow">&rarr;</span>
       <div class="stage-chip pending"><span class="stage-dot"></span> 7&ensp;Deskew</div>
       <span class="pipeline-arrow">&rarr;</span>
       <div class="stage-chip not-started"><span class="stage-dot"></span> 8&ensp;Dewarp</div>
       <span class="pipeline-arrow">&rarr;</span>
       <div class="stage-chip not-started"><span class="stage-dot"></span> 9&ensp;Enhance</div>
-      <span class="pipeline-arrow">&rarr;</span>
+    </div>
+    <div class="pipeline-stages pipeline-row">
       <div class="stage-chip not-started"><span class="stage-dot"></span> 10&ensp;Normalize</div>
       <span class="pipeline-arrow">&rarr;</span>
       <div class="stage-chip not-started"><span class="stage-dot"></span> 11&ensp;OCR</div>
