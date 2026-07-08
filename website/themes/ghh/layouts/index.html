@@ -224,7 +224,7 @@
   <div class="section-inner">
     <h2 class="section-title">The Pipeline</h2>
     <p class="section-subtitle">
-      A modular, checkpointed pipeline of 13 stages. Each stage writes its
+      A modular, checkpointed pipeline of 14 stages. Each stage writes its
       output to a numbered directory, enabling inspection and resumability.
     </p>
 
@@ -242,7 +242,8 @@
       <div class="stage-chip done"><span class="stage-dot"></span> 5&ensp;Perspective</div>
       <span class="pipeline-arrow">&rarr;</span>
       <div class="stage-chip pending"><span class="stage-dot"></span> 6&ensp;Content Area</div>
-      <span class="pipeline-arrow">&rarr;</span>
+    </div>
+    <div class="pipeline-stages">
       <div class="stage-chip pending"><span class="stage-dot"></span> 7&ensp;Deskew</div>
       <span class="pipeline-arrow">&rarr;</span>
       <div class="stage-chip not-started"><span class="stage-dot"></span> 8&ensp;Dewarp</div>
@@ -253,7 +254,9 @@
       <span class="pipeline-arrow">&rarr;</span>
       <div class="stage-chip not-started"><span class="stage-dot"></span> 11&ensp;OCR</div>
       <span class="pipeline-arrow">&rarr;</span>
-      <div class="stage-chip done"><span class="stage-dot"></span> 12&ensp;PDF</div>
+      <div class="stage-chip not-started"><span class="stage-dot"></span> 12&ensp;OMR</div>
+      <span class="pipeline-arrow">&rarr;</span>
+      <div class="stage-chip done"><span class="stage-dot"></span> 13&ensp;PDF</div>
     </div>
 
     <div class="pipeline-legend">
@@ -315,7 +318,7 @@
 
       <div class="roadmap-card">
         <span class="roadmap-badge future">Future</span>
-        <h3>OMGR: Optical Music &amp; Gregorian Recognition</h3>
+        <h3>Stage 12: OMR &mdash; Optical Music Recognition</h3>
         <p>
           Automatic transcription of square notation (neumes on 4-line staves)
           into machine-readable formats: MEI, MusicXML, or Volpiano.
