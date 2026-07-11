@@ -784,6 +784,7 @@ function setSideRight(i) {
   buildTabs();
   render();
   updateMeta();
+  pushHash();
 }
 
 /* --- Rendering --- */
@@ -859,6 +860,7 @@ function toggleSide() {
   updateFooter();
   buildTabs();
   render();
+  pushHash();
 }
 function toggleMeta() {
   isMeta = !isMeta;
@@ -884,6 +886,7 @@ $sideToggle.addEventListener("change", () => {
   updateFooter();
   buildTabs();
   render();
+  pushHash();
   $sideToggle.blur();
 });
 $metaToggle.addEventListener("change", () => {
@@ -916,7 +919,7 @@ document.addEventListener("keydown", (e) => {
       if (e.shiftKey) {
         sideRight = 0;
         imgIdxRight = clampImg(imgIdxRight + dir);
-        updateImgCounter(); buildTabs(); render(); updateMeta();
+        updateImgCounter(); buildTabs(); render(); updateMeta(); pushHash();
       } else {
         sideLeft = 0;
         setImage(imgIdx + dir);
@@ -931,7 +934,7 @@ document.addEventListener("keydown", (e) => {
     if (isSide) {
       if (e.shiftKey) {
         imgIdxRight = clampImg(imgIdxRight + dir);
-        updateImgCounter(); buildTabs(); render(); updateMeta();
+        updateImgCounter(); buildTabs(); render(); updateMeta(); pushHash();
       } else {
         setImage(imgIdx + dir);
       }
@@ -960,21 +963,51 @@ document.addEventListener("keydown", (e) => {
 /* --- Deep linking via URL hash --- */
 let _suppressHash = false;
 function pushHash() {
-  const h = "#" + IMAGES[imgIdx].stem + "/" + stgIdx;
+  let h;
+  if (isSide) {
+    h = "#" + IMAGES[imgIdx].stem + "/" + sideLeft +
+        "+" + IMAGES[imgIdxRight].stem + "/" + sideRight;
+  } else {
+    h = "#" + IMAGES[imgIdx].stem + "/" + stgIdx;
+  }
   if (location.hash !== h) {
     _suppressHash = true;
     history.replaceState(null, "", h);
   }
 }
+function findImg(stem) {
+  return IMAGES.findIndex(img => img.stem === stem);
+}
+function clampStg(i) {
+  return Math.max(0, Math.min(i, STAGES.length - 1));
+}
 function applyHash() {
-  const m = location.hash.match(/^#([^/]+)(?:[/](\\d+))?$/);
+  const h = location.hash;
+  const sideMatch = h.match(
+    /^#([^/+]+)[/](\\d+)\\+([^/+]+)[/](\\d+)$/);
+  if (sideMatch) {
+    const li = findImg(sideMatch[1]);
+    const ri = findImg(sideMatch[3]);
+    if (li < 0 || ri < 0) return;
+    imgIdx = li;
+    imgIdxRight = ri;
+    sideLeft = clampStg(parseInt(sideMatch[2]));
+    sideRight = clampStg(parseInt(sideMatch[4]));
+    stgIdx = sideLeft;
+    isSide = true;
+    $sideToggle.checked = true;
+    isMeta = false;
+    $metaToggle.checked = false;
+    $metaPanel.classList.remove("open");
+    updateFooter();
+    return;
+  }
+  const m = h.match(/^#([^/+]+)(?:[/](\\d+))?$/);
   if (!m) return;
-  const stem = m[1];
-  const si = m[2] != null ? parseInt(m[2]) : 0;
-  const idx = IMAGES.findIndex(img => img.stem === stem);
+  const idx = findImg(m[1]);
   if (idx < 0) return;
   imgIdx = idx;
-  stgIdx = Math.max(0, Math.min(si, STAGES.length - 1));
+  stgIdx = clampStg(m[2] != null ? parseInt(m[2]) : 0);
 }
 window.addEventListener("hashchange", () => {
   if (_suppressHash) { _suppressHash = false; return; }
