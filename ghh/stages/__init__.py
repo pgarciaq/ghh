@@ -11,6 +11,7 @@ from ghh.pipeline import BaseStage
 from ghh.stages.content_area import ContentAreaStage
 from ghh.stages.deskew import DeskewStage
 from ghh.stages.lens_correct import LensCorrectStage
+from ghh.stages.omr import OmrStage
 from ghh.stages.orientation import OrientationStage
 from ghh.stages.page_detect import PageDetectStage
 from ghh.stages.pdf_assembly import PDFAssemblyStage
@@ -28,6 +29,7 @@ STAGE_CLASSES: list[type[BaseStage]] = [
     ContentAreaStage,   # 6
     DeskewStage,        # 7
     PDFAssemblyStage,   # 12
+    OmrStage,           # 14
 ]
 
 STAGE_BY_NUMBER: dict[int, type[BaseStage]] = {s.number: s for s in STAGE_CLASSES}

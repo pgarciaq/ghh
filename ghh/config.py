@@ -21,9 +21,9 @@ logger = logging.getLogger(__name__)
 # Stages that each profile SKIPS (everything not listed runs).
 _PROFILE_SKIPS: dict[str, set[str]] = {
     "full": set(),
-    "geometry": {"content_area", "dewarp", "deskew", "enhance", "normalize", "ocr"},
+    "geometry": {"content_area", "dewarp", "deskew", "enhance", "normalize", "ocr", "omr"},
     "clean": {"ocr"},
-    "quick": {"content_area", "dewarp", "deskew", "normalize", "ocr"},
+    "quick": {"content_area", "dewarp", "deskew", "normalize", "ocr", "omr"},
 }
 
 _MANDATORY_STAGES = {"orientation", "page_detect", "perspective", "pdf_assembly"}
@@ -139,6 +139,12 @@ class Config:
     ocr_engine: str = "tesseract"
     ocr_lang: str = "lat"
 
+    # OMR (Stage 14)
+    omr_model_dir: str = ""
+    omr_beam_width: int = 1
+    omr_device: str = "AUTO"
+    skip_omr: bool = False
+
     # Enhance sub-step toggles
     enhance_color_cast: bool = True
     enhance_illumination: bool = True
@@ -248,6 +254,12 @@ class Config:
         ocr = toml_data.get("ocr", {})
         _map_if_present(kwargs, ocr, "language", "ocr_lang")
         _map_if_present(kwargs, ocr, "engine", "ocr_engine")
+
+        # [omr] section
+        omr = toml_data.get("omr", {})
+        _map_if_present(kwargs, omr, "model_dir", "omr_model_dir")
+        _map_if_present(kwargs, omr, "beam_width", "omr_beam_width")
+        _map_if_present(kwargs, omr, "device", "omr_device")
 
         # [stitch] section
         stitch = toml_data.get("stitch", {})

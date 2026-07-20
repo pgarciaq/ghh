@@ -51,7 +51,9 @@ def stages():
 @click.option("--skip-enhance", is_flag=True)
 @click.option("--skip-normalize", is_flag=True)
 @click.option("--skip-ocr", is_flag=True)
+@click.option("--skip-omr", is_flag=True)
 @click.option("--skip-content-area", is_flag=True)
+@click.option("--model-dir", default=None, help="Path to chant-omr OpenVINO model directory")
 @click.option("--ai-dewarp", is_flag=True)
 @click.option("--binarize", is_flag=True)
 @click.option("--cleanup", is_flag=True, help="Delete intermediate checkpoints after success")
@@ -62,8 +64,8 @@ def stages():
 @click.option("-q", "--quiet", is_flag=True)
 def run(input_dir, output_dir, config_path, stage_spec, profile, preview,
         skip_dewarp, skip_deskew, skip_enhance, skip_normalize, skip_ocr,
-        skip_content_area, ai_dewarp, binarize, cleanup, on_error, jobs,
-        verbose, quiet):
+        skip_omr, skip_content_area, model_dir, ai_dewarp, binarize,
+        cleanup, on_error, jobs, verbose, quiet):
     """Process book page photos through the pipeline.
 
     Runs all implemented stages by default.  Use --stages to select specific
@@ -99,6 +101,7 @@ def run(input_dir, output_dir, config_path, stage_spec, profile, preview,
         "skip_enhance": skip_enhance,
         "skip_normalize": skip_normalize,
         "skip_ocr": skip_ocr,
+        "skip_omr": skip_omr,
         "skip_content_area": skip_content_area,
         "ai_dewarp": ai_dewarp,
         "binarize": binarize,
@@ -107,6 +110,8 @@ def run(input_dir, output_dir, config_path, stage_spec, profile, preview,
         "verbose": verbose,
         "quiet": quiet,
     }
+    if model_dir is not None:
+        overrides["omr_model_dir"] = model_dir
     cfg = Config.from_toml(input_path, toml_path=config_path, overrides=overrides)
 
     if stage_spec is not None:
