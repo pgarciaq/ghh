@@ -255,9 +255,9 @@
       <span class="pipeline-arrow">&rarr;</span>
       <div class="stage-chip not-started"><span class="stage-dot"></span> 11&ensp;OCR</div>
       <span class="pipeline-arrow">&rarr;</span>
-      <div class="stage-chip not-started"><span class="stage-dot"></span> 12&ensp;OMR</div>
+      <div class="stage-chip done"><span class="stage-dot"></span> 12&ensp;PDF</div>
       <span class="pipeline-arrow">&rarr;</span>
-      <div class="stage-chip done"><span class="stage-dot"></span> 13&ensp;PDF</div>
+      <div class="stage-chip done"><span class="stage-dot"></span> 14&ensp;OMR</div>
     </div>
 
     <div class="pipeline-legend">
@@ -318,12 +318,13 @@
       </div>
 
       <div class="roadmap-card">
-        <span class="roadmap-badge future">Future</span>
-        <h3>Stage 12: OMR &mdash; Optical Music Recognition</h3>
+        <span class="roadmap-badge done">Done</span>
+        <h3>Stage 14: OMR &mdash; Optical Music Recognition</h3>
         <p>
           Automatic transcription of square notation (neumes on 4-line staves)
-          into machine-readable formats: MEI, MusicXML, or Volpiano.
-          Enabling computational musicology on the <em>cantus</em> repertoire.
+          into machine-readable <a href="https://gregorio-project.github.io/gabc/" style="color: var(--gold-light);">GABC</a>
+          notation using <a href="https://pgarciaq.github.io/chant-omr/" style="color: var(--gold-light);">ChantOMR</a>&mdash;a
+          specialist deep learning model deployed via OpenVINO.
         </p>
       </div>
 
