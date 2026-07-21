@@ -336,7 +336,7 @@ section {
 }
 .pipeline-branches {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: 1.2rem;
   margin-bottom: 0.5rem;
 }
@@ -362,9 +362,6 @@ section {
 }
 .pipeline-branch .pipeline-stages {
   margin-bottom: 0;
-}
-@media (max-width: 900px) {
-  .pipeline-branches { grid-template-columns: 1fr; }
 }
 
 .pipeline-legend {
