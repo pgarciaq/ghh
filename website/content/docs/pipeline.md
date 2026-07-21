@@ -288,21 +288,22 @@ warning.
 **Key configuration:** `[omr]` section: `model_dir`, `beam_width`,
 `device`. CLI: `--model-dir`.
 
-### Stage 14: Score Render
+### Stage 14: Score Render (Score branch only)
 
-**Checkpoint:** `14_score_render/`
+**Checkpoint:** `score/14_score_render/`
 
 Renders GABC files from the OMR stage into music notation images using
 Gregorio/LuaLaTeX:
 
 - Converts `.gabc` files into engraved notation images
 - Produces images suitable for inclusion as a score annex in the PDF
+- Only runs as part of the Score branch (skipped with `--book-only`)
 
 **Status:** Not yet implemented.
 
 **Key configuration:** `[score_render]` section (TBD).
 
-### Stage 15: PDF Assembly
+### Stage 15: PDF Assembly (Finalization)
 
 **Checkpoint:** `15_pdf/`
 
