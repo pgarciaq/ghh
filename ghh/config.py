@@ -84,7 +84,7 @@ class Config:
     # Stitch parameters (Stage 1)
     stitch_min_matches: int = 30
     stitch_ratio_threshold: float = 0.75
-    stitch_min_overlap_frac: float = 0.2
+    stitch_min_overlap_frac: float = 0.15
     stitch_inlier_ratio: float = 0.5
     retake_overlap_threshold: float = 0.9
 
