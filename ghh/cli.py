@@ -121,6 +121,22 @@ def run(input_dir, output_dir, config_path, stage_spec, profile, preview,
     }
     if model_dir is not None:
         overrides["omr_model_dir"] = model_dir
+
+    # Auto-discover or generate book.toml
+    if config_path is None:
+        for candidate in (output_path / "book.toml", input_path / "book.toml"):
+            if candidate.exists():
+                config_path = str(candidate)
+                click.echo(f"Using {candidate}")
+                break
+        if config_path is None:
+            from ghh.stages.analyze import run_analyze
+
+            click.echo("No book.toml found, running analyze...")
+            toml_path = run_analyze(input_path, output_path)
+            config_path = str(toml_path)
+            click.echo(f"Generated {toml_path}")
+
     cfg = Config.from_toml(input_path, toml_path=config_path, overrides=overrides)
 
     # If user specified explicit stages, use flat (non-branched) execution
