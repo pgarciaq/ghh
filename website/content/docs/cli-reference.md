@@ -39,7 +39,7 @@ producing a clean PDF from raw photographs.
 | `--skip-enhance` | flag | | Skip image enhancement (Stage 9) |
 | `--skip-normalize` | flag | | Skip cross-page normalization (Stage 10) |
 | `--skip-ocr` | flag | | Skip OCR (Stage 11) |
-| `--skip-omr` | flag | | Skip OMR (Stage 14) |
+| `--skip-omr` | flag | | Skip OMR (Stage 12) |
 | `--model-dir` | path | from config | Path to chant-omr OpenVINO model directory |
 | `--ai-dewarp` | flag | | Use AI-based dewarping |
 | `--binarize` | flag | | Binarize output images |

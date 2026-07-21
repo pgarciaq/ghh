@@ -41,8 +41,8 @@ _IMAGE_EXTENSIONS = frozenset((".png", ".jpg", ".jpeg", ".tiff", ".tif"))
 
 class OmrStage(BaseStage):
     name = "omr"
-    number = 14
-    checkpoint_name = "14_omr"
+    number = 12
+    checkpoint_name = "12_omr"
     error_class = "skippable"
     writes_image = False
 

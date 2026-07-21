@@ -56,7 +56,7 @@ physical condition (coastal preservation, humidity damage, aging).
 | 17 | Stage 9 (enhance) | Pending | | |
 | 18 | Stage 10 (normalize) | Pending | | |
 | 19 | Stage 11 (OCR) | Pending | | |
-| 20 | Stage 12 (PDF assembly) | **Done** | 35 tests | img2pdf; JPEG/PNG compression; case-insensitive; DPI layout; resume; exclude; 224-page LPA-1 PDF (311.9 MB) |
+| 20 | Stage 13 (PDF assembly) | **Done** | 35 tests | img2pdf; JPEG/PNG compression; case-insensitive; DPI layout; resume; exclude; 224-page LPA-1 PDF (311.9 MB) |
 | 21 | `flipbook` CLI command | **Done** | 32 tests | StPageFlip HTML flipbook; vendored JS; PDF download; --with-flipbook/--with-pdf on publish |
 | 22 | `compare` CLI command | **Done** | 26 tests | Full-book HTML viewer; PgUp/PgDn image nav; side-by-side; auto-generated after `run`; dark blue theme |
 | 23 | `publish` CLI command | **Done** | 16 tests | Self-contained JPEG site for web hosting; warm amber theme; stage filter; timestamped badge |
@@ -126,7 +126,7 @@ ghh/
                             #   shadows, stains, halos, salt, CLAHE, denoise, sharpen
       normalize.py          # Stage 10: cross-page color + DPI normalization
       ocr.py                # Stage 11: Tesseract/Kraken OCR
-      pdf_assembly.py       # Stage 12: searchable PDF assembly
+      pdf_assembly.py       # Stage 13: searchable PDF assembly
     utils/
       __init__.py
       line_detect.py        # Generic ink detection, staff line detection, foxing filter (R9)
@@ -161,7 +161,8 @@ output/
   09_enhanced/               IMG_0011.jpg, ...
   10_normalized/             IMG_0011.jpg, ...   (cross-page color + DPI matched)
   11_ocr/                    IMG_0011.hocr, ...  (hOCR XML files)
-  12_pdf/                    <book>.pdf, <book>.pdf.json
+  12_omr/                    *.gabc, *.json (OMR transcription)
+  13_pdf/                    <book>.pdf, <book>.pdf.json
   flipbook/                  index.html, pages/, page-flip.browser.js, flipbook.json
   pipeline.json                                  (stage status, parameters used)
   ghh.log                                 (detailed log, always verbose)
@@ -1308,13 +1309,13 @@ ocr_blank_stddev_threshold: float = 15
 
 ---
 
-## Stage 12: PDF Assembly (`pdf_assembly.py`)
+## Stage 13: PDF Assembly (`pdf_assembly.py`)
 
 ### Algorithm (implemented)
 
 ```
 1. Resolve input: find the latest completed stage checkpoint directory.
-   The CLI's _find_previous_checkpoint walks backward from stage 12.
+   The CLI's _find_previous_checkpoint walks backward from stage 13.
 
 2. Collect images from input directory (sorted by filename = page order).
    Exclude images listed in cfg.exclude_images.
@@ -1362,7 +1363,7 @@ dpi = 300
 ### Input/Output
 
 - Input: images from latest completed stage checkpoint
-- Output: `<input_dir_name>.pdf` + `<input_dir_name>.pdf.json` sidecar in `12_pdf/`
+- Output: `<input_dir_name>.pdf` + `<input_dir_name>.pdf.json` sidecar in `13_pdf/`
 
 ### Future enhancements (deferred)
 
@@ -1387,7 +1388,7 @@ This is a **standalone CLI command** (not a pipeline stage), similar to
 
 ```
 1. Resolve input: find the latest completed image stage checkpoint
-   (same logic as Stage 12 -- walk backward from stage 13).
+   (same logic as Stage 13 -- walk backward from the PDF stage).
 
 2. Collect images (sorted by filename = page order).
    Exclude images from cfg.exclude_images.
@@ -1435,7 +1436,7 @@ title = "LPA 1 - San Nicolás"
   - `index.html` (self-contained viewer)
   - `pages/` (resized JPEG images, numbered 001.jpg, 002.jpg, ...)
   - `page-flip.browser.js` (vendored library)
-  - `book.pdf` (optional, copied from 12_pdf/ unless --no-pdf)
+  - `book.pdf` (optional, copied from 13_pdf/ unless --no-pdf)
   - `flipbook.json` (sidecar metadata)
 
 ### Library choice: StPageFlip (`page-flip`)
@@ -1478,7 +1479,7 @@ ghh publish OUTPUT_DIR DIR --with-pdf        # include flipbook + PDF download
   Node.js required to view it. Just open `index.html` in a browser.
 - `ghh publish --with-flipbook` generates the flipbook into `PUBLISH_DIR/flipbook/`.
   `--with-pdf` implies `--with-flipbook` and copies the PDF for download.
-- PDF is sourced from `12_pdf/<book>.pdf`; if absent, the link is silently omitted.
+- PDF is sourced from `13_pdf/<book>.pdf`; if absent, the link is silently omitted.
 
 ---
 
@@ -1609,7 +1610,7 @@ Each stage emits progress via `tqdm` (when available) or plain logging:
 [Stage 1] Grouping & stitching... 220/220 [00:15, 14.7 img/s]
 [Stage 2] Orienting images... 220/220 [00:12, 18.3 img/s]
 ...
-[Stage 12] Assembling PDF... done (222 pages, 185 MB)
+[Stage 13] Assembling PDF... done (222 pages, 185 MB)
 
 === Pipeline Complete ===
 Processed 222/225 images in 12m34s.
@@ -2524,7 +2525,7 @@ and doesn't require as much training data.
 
 No changes needed to the current pipeline for OMR readiness. The
 architecture is already compatible:
-- OMR would be a new Stage 14 (or a separate command `ghh omr`)
+- OMR is Stage 12 (runs before PDF assembly, Stage 13)
 - It consumes Stage 8 output (dewarped images) and Stage 8 metadata
   (staff positions)
 - It runs after the image pipeline, optionally in parallel with
@@ -2581,7 +2582,8 @@ Config-aware invalidation:
     Stage 9:  [enhance_*, color_cast_*, shadow_*, stain_*, halo_*, salt_*]
     Stage 10: [normalize_*]
     Stage 11: [ocr_*]
-    Stage 12: [pdf_*]
+    Stage 12: [omr_*]
+    Stage 13: [pdf_*]
 
   If any field in a stage's dependency set has changed since the last
   run, ALL images in that stage are invalidated AND all downstream
@@ -2630,7 +2632,7 @@ Worker count auto-scales to available RAM, not just CPU count.
      for standalone images
    - Stage 10 (normalize): two-pass -- first pass collects stats
      (parallel), second pass applies normalization (parallel)
-   - Stage 12 (PDF): single-threaded (sequential assembly)
+   - Stage 13 (PDF): single-threaded (sequential assembly)
 
 5. Default --workers 0 = auto-detect. Explicit --workers N overrides.
 ```
@@ -2732,7 +2734,7 @@ on synthetic images:
 18. **Stage 9** (enhance): R3 color cast, illumination, shadows (R5), stains (R6), halos (R10), show-through, CLAHE, salt (R11), denoise, sharpen
 19. **Stage 10** (normalize): cross-page color + DPI (global pass, batch stage)
 20. **Stage 11** (OCR): Tesseract integration, graceful skip if missing, Kraken optional
-21. ~~**Stage 12** (PDF)~~: ✅ img2pdf assembly, JPEG/PNG compression, case-insensitive config, DPI layout, resume, exclude (35 tests)
+21. ~~**Stage 13** (PDF)~~: ✅ img2pdf assembly, JPEG/PNG compression, case-insensitive config, DPI layout, resume, exclude (35 tests)
 22. ~~**`ghh flipbook`**~~: ✅ StPageFlip HTML flipbook; vendored JS; PDF download; --with-flipbook/--with-pdf on publish (32 tests)
 23. **pipeline.py**: orchestrator -- chain stages, progress reporting, end-of-run summary
 24. **CLI polish**: tqdm progress bars, `inspect` + `review` commands, error handling UX

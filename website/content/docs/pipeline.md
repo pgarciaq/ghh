@@ -251,24 +251,9 @@ gracefully.
 
 **Key configuration:** `[ocr]` section: `engine`, `language`.
 
-### Stage 12: PDF Assembly
+### Stage 12: OMR (Optical Music Recognition)
 
-**Checkpoint:** `12_pdf/`
-
-Assembles the final PDF from processed page images:
-
-- Uses `img2pdf` for lossless or JPEG-compressed assembly
-- Applies configured DPI for correct physical sizing
-- Names the output PDF after the input directory (e.g., `LPA-1.pdf`)
-
-This stage cannot be skipped.
-
-**Key configuration:** `[pdf]` section: `compression`, `jpeg_quality`,
-`dpi`.
-
-### Stage 14: OMR (Optical Music Recognition)
-
-**Checkpoint:** `14_omr/`
+**Checkpoint:** `12_omr/`
 
 Transcribes music pages into GABC notation using
 [ChantOMR](https://pgarciaq.github.io/chant-omr/), a deep learning model
@@ -287,3 +272,18 @@ warning.
 
 **Key configuration:** `[omr]` section: `model_dir`, `beam_width`,
 `device`. CLI: `--model-dir`.
+
+### Stage 13: PDF Assembly
+
+**Checkpoint:** `13_pdf/`
+
+Assembles the final PDF from processed page images:
+
+- Uses `img2pdf` for lossless or JPEG-compressed assembly
+- Applies configured DPI for correct physical sizing
+- Names the output PDF after the input directory (e.g., `LPA-1.pdf`)
+
+This stage cannot be skipped.
+
+**Key configuration:** `[pdf]` section: `compression`, `jpeg_quality`,
+`dpi`.

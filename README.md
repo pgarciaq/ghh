@@ -9,7 +9,7 @@ Designed for digitizing collections of 15+ books with varying ink colors, photog
 ## Features
 
 - **Zero configuration** -- just point it at a directory of photos and get a PDF
-- **12-stage pipeline** -- orientation, page detection, perspective correction, dewarping, deskewing, enhancement, OCR, and PDF assembly
+- **14-stage pipeline** -- orientation, page detection, perspective correction, dewarping, deskewing, enhancement, OCR, OMR, and PDF assembly
 - **Auto-detection** -- ink colors, page boundaries, staff lines, and book characteristics are detected automatically per book
 - **Checkpointed and resumable** -- interrupting mid-run loses no work; only incomplete images are reprocessed
 - **Lossless intermediates** -- all checkpoints use PNG; JPEG compression happens only once during final PDF assembly
@@ -58,7 +58,7 @@ Process a directory of book photos into a searchable PDF:
 ghh run /path/to/book/photos
 ```
 
-That's it. The pipeline auto-detects book characteristics, runs all 12 stages, and produces a PDF in a sibling output directory.
+That's it. The pipeline auto-detects book characteristics, runs all stages, and produces a PDF in a sibling output directory.
 
 ### Common Options
 
@@ -146,7 +146,8 @@ The two viewers have distinct color themes (blue for local compare, amber for pu
 | 9 | Enhance | Color cast, illumination, show-through, stain removal, CLAHE, sharpening |
 | 10 | Normalize | Cross-page color and DPI normalization |
 | 11 | OCR | Tesseract or Kraken text layer generation |
-| 12 | PDF Assembly | Searchable PDF with optimized JPEG compression |
+| 12 | OMR | Optical Music Recognition (GABC transcription) |
+| 13 | PDF Assembly | Searchable PDF with optimized JPEG compression |
 
 Stages marked as optional auto-skip when not needed (e.g., lens correction is skipped when no distortion is detected).
 

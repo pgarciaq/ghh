@@ -244,7 +244,7 @@ show_through_removal = false   # disable for pages without show-through
 sharpen = false                # skip if already sharp
 ```
 
-### [pdf] -- PDF assembly (Stage 12)
+### [pdf] -- PDF assembly (Stage 13)
 
 Controls final PDF creation.
 
@@ -271,7 +271,7 @@ Controls the HTML flipbook viewer.
 | `engine` | string | `"tesseract"` | OCR engine (`"tesseract"` or `"kraken"`) |
 | `language` | string | `"lat"` | Language code for OCR |
 
-### [omr] -- Optical Music Recognition (Stage 14)
+### [omr] -- Optical Music Recognition (Stage 12)
 
 Controls OMR inference using [ChantOMR](https://pgarciaq.github.io/chant-omr/).
 Requires the `chant-omr` package to be installed separately.

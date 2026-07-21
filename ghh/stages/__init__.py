@@ -28,8 +28,8 @@ STAGE_CLASSES: list[type[BaseStage]] = [
     PerspectiveStage,   # 5
     ContentAreaStage,   # 6
     DeskewStage,        # 7
-    PDFAssemblyStage,   # 12
-    OmrStage,           # 14
+    OmrStage,           # 12
+    PDFAssemblyStage,   # 13
 ]
 
 STAGE_BY_NUMBER: dict[int, type[BaseStage]] = {s.number: s for s in STAGE_CLASSES}

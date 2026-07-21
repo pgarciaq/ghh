@@ -1,4 +1,4 @@
-"""Stage 12: PDF assembly.
+"""Stage 13: PDF assembly.
 
 Collects all images from the latest completed pipeline stage and
 assembles them into a single PDF file.  This is the terminal stage
@@ -15,7 +15,7 @@ Two compression modes are supported:
   size but perfect quality.
 
 The stage dynamically resolves its input: the CLI's
-``_find_previous_checkpoint`` walks backward from stage 12 and uses
+``_find_previous_checkpoint`` walks backward from stage 13 and uses
 whichever checkpoint directory exists, so the PDF always contains
 the output of the last completed stage.
 
@@ -53,8 +53,8 @@ def _make_layout_fun(dpi: int):
 
 class PDFAssemblyStage(BaseStage):
     name = "pdf_assembly"
-    number = 12
-    checkpoint_name = "12_pdf"
+    number = 13
+    checkpoint_name = "13_pdf"
     error_class = "fatal"
 
     def process_image(
