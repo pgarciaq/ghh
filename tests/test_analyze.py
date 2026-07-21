@@ -192,45 +192,38 @@ class TestInkDiscovery:
 
 
 # ---------------------------------------------------------------------------
-# TestCoarseOrientation
+# TestLinePixelDiscovery
 # ---------------------------------------------------------------------------
 
-class TestCoarseOrientation:
-    """Test coarse (90°) orientation detection."""
+class TestLinePixelDiscovery:
+    """Test color-agnostic line pixel detection for ink discovery."""
 
-    def test_upright_returns_zero(self, tmp_path):
-        from ghh.stages.analyze import _detect_coarse_orientation
+    def test_finds_staff_lines(self):
+        from ghh.stages.analyze import _discover_line_pixels
 
-        pages = []
-        for i in range(3):
-            page = make_music_page(width=400, height=300)
-            photo = make_page_on_background(page, bg=(35, 28, 22), border=40)
-            pages.append(photo)
+        page = make_music_page(width=600, height=400, num_staves=4)
+        mask = _discover_line_pixels(page)
 
-        offset = _detect_coarse_orientation(pages)
-        assert offset == 0
+        assert np.count_nonzero(mask) > 100
 
-    def test_detects_90_degree_rotation(self, tmp_path):
-        from ghh.stages.analyze import _detect_coarse_orientation
+    def test_blank_page_returns_sparse_mask(self):
+        from ghh.stages.analyze import _discover_line_pixels
 
-        pages = []
-        for i in range(3):
-            page = make_music_page(width=400, height=300)
-            photo = make_page_on_background(page, bg=(35, 28, 22), border=40)
-            rotated = cv2.rotate(photo, cv2.ROTATE_90_CLOCKWISE)
-            pages.append(rotated)
+        blank = np.full((400, 600, 3), (220, 215, 200), dtype=np.uint8)
+        mask = _discover_line_pixels(blank)
 
-        offset = _detect_coarse_orientation(pages)
-        assert offset in (90, 270)
+        assert np.count_nonzero(mask) < 200
 
-    def test_handles_no_staff_lines_gracefully(self, tmp_path):
-        from ghh.stages.analyze import _detect_coarse_orientation
+    def test_works_on_grayscale(self):
+        from ghh.stages.analyze import _discover_line_pixels
 
-        pages = [np.full((300, 400, 3), (200, 200, 200), dtype=np.uint8)
-                 for _ in range(3)]
+        gray = np.full((400, 600), 200, dtype=np.uint8)
+        cv2.line(gray, (0, 100), (600, 100), 50, 2)
+        cv2.line(gray, (0, 200), (600, 200), 50, 2)
+        cv2.line(gray, (0, 300), (600, 300), 50, 2)
+        mask = _discover_line_pixels(gray)
 
-        offset = _detect_coarse_orientation(pages)
-        assert offset == 0
+        assert np.count_nonzero(mask) > 0
 
 
 # ---------------------------------------------------------------------------
@@ -241,33 +234,33 @@ class TestLayoutAnalysis:
     """Test layout feature detection."""
 
     def test_counts_staff_lines(self, tmp_path):
-        from ghh.stages.analyze import _analyze_layout
+        from ghh.stages.analyze import _analyze_layout, _default_ink
 
         pages = [make_music_page(width=400, height=300, num_staves=4)
                  for _ in range(5)]
 
-        result = _analyze_layout(pages)
+        result = _analyze_layout(pages, _default_ink())
 
         assert "expected_staff_lines_per_page" in result
         assert result["expected_staff_lines_per_page"] > 0
 
     def test_detects_border_frame(self, tmp_path):
-        from ghh.stages.analyze import _analyze_layout
+        from ghh.stages.analyze import _analyze_layout, _default_ink
 
         pages = [make_music_page(width=400, height=300)
                  for _ in range(5)]
 
-        result = _analyze_layout(pages)
+        result = _analyze_layout(pages, _default_ink())
 
         assert "has_border_frame" in result
 
     def test_computes_aspect_ratio(self, tmp_path):
-        from ghh.stages.analyze import _analyze_layout
+        from ghh.stages.analyze import _analyze_layout, _default_ink
 
         pages = [make_music_page(width=400, height=300)
                  for _ in range(5)]
 
-        result = _analyze_layout(pages)
+        result = _analyze_layout(pages, _default_ink())
 
         assert "median_aspect_ratio" in result
         assert result["median_aspect_ratio"] > 0
@@ -326,22 +319,22 @@ class TestPhysicalCondition:
     """Test physical condition analysis."""
 
     def test_pristine_page_reports_none(self, tmp_path):
-        from ghh.stages.analyze import _analyze_condition
+        from ghh.stages.analyze import _analyze_condition, _default_ink
 
         pages = [make_music_page(width=400, height=300) for _ in range(5)]
 
-        result = _analyze_condition(pages)
+        result = _analyze_condition(pages, _default_ink())
 
         assert result["foxing_severity"] == "none"
         assert result["stain_severity"] == "none"
         assert result["salt_deposits"] == "none"
 
     def test_returns_expected_keys(self, tmp_path):
-        from ghh.stages.analyze import _analyze_condition
+        from ghh.stages.analyze import _analyze_condition, _default_ink
 
         pages = [make_music_page(width=400, height=300) for _ in range(5)]
 
-        result = _analyze_condition(pages)
+        result = _analyze_condition(pages, _default_ink())
 
         for key in ("stain_severity", "ink_fading", "show_through_severity",
                     "foxing_severity", "iron_gall_halos", "salt_deposits"):

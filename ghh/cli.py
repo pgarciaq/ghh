@@ -364,7 +364,17 @@ def _configure_logging(verbose: bool, quiet: bool) -> None:
 @click.option("--samples", type=int, default=15)
 def analyze(input_dir, output_dir, samples):
     """Analyze book photos and generate book.toml configuration."""
+    from ghh.stages.analyze import run_analyze
+
+    input_path = Path(input_dir)
+    if output_dir is None:
+        out_path = input_path.parent / f"{input_path.name}_output"
+    else:
+        out_path = Path(output_dir)
+
     click.echo(f"Analyzing {input_dir}...")
+    toml_path = run_analyze(input_path, out_path, samples=samples)
+    click.echo(f"Generated {toml_path}")
 
 
 @main.command()

@@ -9,21 +9,13 @@ no book.toml exists.
 from __future__ import annotations
 
 import logging
-import sys
-from collections import Counter
 from pathlib import Path
-
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    import tomli as tomllib  # type: ignore[import-not-found]
 
 import cv2
 import numpy as np
 
 from ghh.config import Config
 from ghh.utils.image_io import load_image
-from ghh.utils.line_detect import count_horizontal_lines
 from ghh.utils.page_find import crop_to_page, find_page_quad
 from ghh.utils.stats import adaptive_sample_count, robust_median
 
@@ -58,20 +50,25 @@ def run_analyze(
     sample_paths = _select_evenly_spaced(image_paths, n_samples)
 
     images = []
+    exif_orientations = []
     for p in sample_paths:
-        img, _ = load_image(p)
+        img, meta = load_image(p)
         if img is not None:
             images.append(img)
+            exif_orientations.append(meta.get("orientation", None))
 
     if len(images) < 3:
         logger.warning("Fewer than 3 valid samples, using defaults")
         return _write_defaults(output_dir)
 
-    orientation_subset = images[:min(5, len(images))]
-    coarse_offset = _detect_coarse_orientation(orientation_subset)
-
-    if coarse_offset != 0:
-        images = [_apply_rotation(img, coarse_offset) for img in images]
+    missing_exif = sum(1 for o in exif_orientations if o is None or o == 1)
+    if missing_exif == len(exif_orientations):
+        logger.info(
+            "All %d samples have EXIF orientation=1 or missing; "
+            "if images appear rotated, set coarse_rotation_offset "
+            "manually in book.toml",
+            len(exif_orientations),
+        )
 
     cropped_pages = []
     for img in images:
@@ -80,10 +77,9 @@ def run_analyze(
         cropped_pages.append(page)
 
     ink_result = _discover_ink_color(cropped_pages)
-    layout_result = _analyze_layout(cropped_pages)
+    layout_result = _analyze_layout(cropped_pages, ink_result)
     photo_result = _analyze_photography(images)
-    photo_result["coarse_rotation_offset"] = coarse_offset
-    condition_result = _analyze_condition(cropped_pages)
+    condition_result = _analyze_condition(cropped_pages, ink_result)
 
     toml_path = _write_book_toml(
         output_dir,
@@ -102,16 +98,31 @@ def run_analyze(
 # ---------------------------------------------------------------------------
 
 def _discover_ink_color(pages: list[np.ndarray]) -> dict:
-    """Detect dominant ink color across cropped pages."""
+    """Detect dominant ink color across cropped pages.
+
+    Uses a two-pass approach:
+    1. Color-agnostic geometric detection finds line-like pixels
+       (staff lines, border frames) regardless of ink color.
+    2. HSV histogram on those pixels discovers the actual ink hue.
+
+    Falls back to a tighter HSV filter if no line-like pixels are found.
+    """
     hue_values = []
     sat_values = []
     val_values = []
 
     for page in pages:
+        line_mask = _discover_line_pixels(page)
+        pixel_count = np.count_nonzero(line_mask)
+
         hsv = cv2.cvtColor(page, cv2.COLOR_BGR2HSV)
         h, s, v = hsv[:, :, 0], hsv[:, :, 1], hsv[:, :, 2]
 
-        mask = (v > 60) & (v < 200) & (s > 20)
+        if pixel_count >= 200:
+            mask = line_mask > 0
+        else:
+            mask = (v > 60) & (v < 180) & (s > 50)
+
         if mask.sum() < 100:
             continue
 
@@ -137,8 +148,10 @@ def _discover_ink_color(pages: list[np.ndarray]) -> dict:
     for page in pages:
         hsv = cv2.cvtColor(page, cv2.COLOR_BGR2HSV)
         h = hsv[:, :, 0]
-        hue_diff = np.minimum(np.abs(h.astype(int) - dominant_hue),
-                              180 - np.abs(h.astype(int) - dominant_hue))
+        hue_diff = np.minimum(
+            np.abs(h.astype(int) - dominant_hue),
+            180 - np.abs(h.astype(int) - dominant_hue),
+        )
         ink_mask = hue_diff < 20
         if ink_mask.sum() < 50:
             continue
@@ -146,8 +159,12 @@ def _discover_ink_color(pages: list[np.ndarray]) -> dict:
         g_means.append(float(page[:, :, 1][ink_mask].mean()))
         r_means.append(float(page[:, :, 2][ink_mask].mean()))
 
-    rg_diff = abs((robust_median(r_means) or 100) - (robust_median(g_means) or 100))
-    rb_diff = abs((robust_median(r_means) or 100) - (robust_median(b_means) or 100))
+    rg_diff = abs(
+        (robust_median(r_means) or 100) - (robust_median(g_means) or 100)
+    )
+    rb_diff = abs(
+        (robust_median(r_means) or 100) - (robust_median(b_means) or 100)
+    )
 
     return {
         "staff_color_hue": dominant_hue,
@@ -157,6 +174,47 @@ def _discover_ink_color(pages: list[np.ndarray]) -> dict:
         "channel_diff_rg": max(15, int(rg_diff * 0.7)),
         "channel_diff_rb": max(15, int(rb_diff * 0.7)),
     }
+
+
+def _discover_line_pixels(page: np.ndarray) -> np.ndarray:
+    """Find line-like pixels using color-agnostic morphological filtering.
+
+    Works regardless of ink color by operating on grayscale adaptive
+    threshold output. Returns a binary mask of pixels that belong to
+    horizontal line structures (staff lines, border frames).
+    """
+    gray = cv2.cvtColor(page, cv2.COLOR_BGR2GRAY) if page.ndim == 3 else page
+    h, w = gray.shape[:2]
+
+    binary = cv2.adaptiveThreshold(
+        gray, 255,
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY_INV,
+        31, 15,
+    )
+
+    horiz_kernel_width = max(50, w // 8)
+    horiz_kernel = cv2.getStructuringElement(
+        cv2.MORPH_RECT, (horiz_kernel_width, 1),
+    )
+    opened = cv2.morphologyEx(binary, cv2.MORPH_OPEN, horiz_kernel)
+
+    num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(
+        opened, connectivity=8,
+    )
+    result = np.zeros_like(opened)
+
+    min_width = int(w * 0.2)
+    for i in range(1, num_labels):
+        comp_w = stats[i, cv2.CC_STAT_WIDTH]
+        comp_h = stats[i, cv2.CC_STAT_HEIGHT]
+        if comp_h == 0:
+            continue
+        aspect = comp_w / max(comp_h, 1)
+        if aspect >= 5.0 and comp_w >= min_width:
+            result[labels == i] = 255
+
+    return result
 
 
 def _default_ink() -> dict:
@@ -171,56 +229,14 @@ def _default_ink() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Coarse orientation detection
-# ---------------------------------------------------------------------------
-
-def _detect_coarse_orientation(images: list[np.ndarray]) -> int:
-    """Try 4 cardinal rotations, return the offset with most horizontal lines."""
-    rotations = {
-        0: None,
-        90: cv2.ROTATE_90_COUNTERCLOCKWISE,
-        180: cv2.ROTATE_180,
-        270: cv2.ROTATE_90_CLOCKWISE,
-    }
-
-    votes = []
-
-    for img in images:
-        best_angle = 0
-        best_count = 0
-
-        small = _downscale(img, max_width=1000)
-
-        for angle, rot_flag in rotations.items():
-            if rot_flag is not None:
-                rotated = cv2.rotate(small, rot_flag)
-            else:
-                rotated = small
-
-            count = count_horizontal_lines(rotated)
-            if count > best_count:
-                best_count = count
-                best_angle = angle
-
-        votes.append(best_angle)
-
-    if not votes:
-        return 0
-
-    counter = Counter(votes)
-    winner, _ = counter.most_common(1)[0]
-    return winner
-
-
-# ---------------------------------------------------------------------------
 # Layout analysis
 # ---------------------------------------------------------------------------
 
-def _analyze_layout(pages: list[np.ndarray]) -> dict:
+def _analyze_layout(pages: list[np.ndarray], ink_result: dict) -> dict:
     """Detect layout features from cropped pages."""
     from ghh.utils.line_detect import detect_staff_lines
 
-    cfg = Config(input_dir=Path("/tmp"))
+    cfg = Config(input_dir=Path("/tmp"), **ink_result)
 
     staff_counts = []
     aspect_ratios = []
@@ -338,14 +354,20 @@ def _color_cast_deviation(img: np.ndarray) -> float:
 # Physical condition analysis
 # ---------------------------------------------------------------------------
 
-def _analyze_condition(pages: list[np.ndarray]) -> dict:
+def _analyze_condition(
+    pages: list[np.ndarray],
+    ink_result: dict,
+) -> dict:
     """Analyze physical condition of cropped pages."""
+    ink_hue = ink_result.get("staff_color_hue", 5)
+    ink_range = ink_result.get("staff_color_range", 15)
+
     foxing_scores = []
     stain_scores = []
     fading_scores = []
 
     for page in pages:
-        foxing_scores.append(_foxing_score(page))
+        foxing_scores.append(_foxing_score(page, ink_hue, ink_range))
         stain_scores.append(_stain_score(page))
         fading_scores.append(_fading_score(page))
 
@@ -359,13 +381,30 @@ def _analyze_condition(pages: list[np.ndarray]) -> dict:
     }
 
 
-def _foxing_score(page: np.ndarray) -> float:
-    """Score foxing presence (small reddish-brown spots)."""
+def _foxing_score(
+    page: np.ndarray,
+    ink_hue: int = 5,
+    ink_range: int = 15,
+) -> float:
+    """Score foxing presence (small reddish-brown spots).
+
+    Excludes pixels near the detected ink hue to avoid counting
+    staff lines as foxing spots.
+    """
     hsv = cv2.cvtColor(page, cv2.COLOR_BGR2HSV)
     h, s, v = hsv[:, :, 0], hsv[:, :, 1], hsv[:, :, 2]
 
-    fox_mask = ((h > 5) & (h < 25) & (s > 30) & (s < 150) &
-                (v > 60) & (v < 180))
+    hue_diff_from_ink = np.minimum(
+        np.abs(h.astype(int) - ink_hue),
+        180 - np.abs(h.astype(int) - ink_hue),
+    )
+    not_ink = hue_diff_from_ink > ink_range
+
+    fox_mask = (
+        (h > 5) & (h < 25) & (s > 50) & (s < 150)
+        & (v > 60) & (v < 180)
+        & not_ink
+    )
 
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
     fox_mask = cv2.morphologyEx(fox_mask.astype(np.uint8), cv2.MORPH_OPEN, kernel)
@@ -444,28 +483,6 @@ def _select_evenly_spaced(paths: list[Path], n: int) -> list[Path]:
         return list(paths)
     indices = np.linspace(0, len(paths) - 1, n, dtype=int)
     return [paths[i] for i in indices]
-
-
-def _apply_rotation(img: np.ndarray, degrees: int) -> np.ndarray:
-    """Apply cardinal rotation (0, 90, 180, 270)."""
-    if degrees == 90:
-        return cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
-    elif degrees == 180:
-        return cv2.rotate(img, cv2.ROTATE_180)
-    elif degrees == 270:
-        return cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
-    return img
-
-
-def _downscale(img: np.ndarray, max_width: int = 1000) -> np.ndarray:
-    """Downscale image if wider than max_width."""
-    h, w = img.shape[:2]
-    if w <= max_width:
-        return img
-    scale = max_width / w
-    new_w = max_width
-    new_h = int(h * scale)
-    return cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
 
 
 def _write_defaults(output_dir: Path) -> Path:
