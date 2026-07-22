@@ -239,6 +239,9 @@ def _refine_to_quad(contour: np.ndarray, cfg: Config) -> np.ndarray:
 # Crop and classification helpers
 # ---------------------------------------------------------------------------
 
+_BOUNDARY_MARGIN = 5
+
+
 def _expand_quad(
     quad: np.ndarray,
     img_h: int,
@@ -247,6 +250,10 @@ def _expand_quad(
 ) -> np.ndarray:
     """Push each quad corner outward from the centroid by *frac* of the
     average edge length, then clamp to the image bounds.
+
+    Corners already on the image boundary are left in place -- expanding
+    them would only push the *opposite* corners further out, making the
+    trapezoid more extreme without recovering any real page content.
 
     This compensates for Otsu contours that sit slightly inside the
     actual page boundary due to edge shadows and coloured elements.
@@ -266,13 +273,23 @@ def _expand_quad(
 
     expanded = np.empty_like(quad)
     for i in range(4):
-        direction = quad[i] - centroid
-        length = np.linalg.norm(direction)
-        if length > 0:
-            unit = direction / length
-            expanded[i] = quad[i] + unit * expand_px
-        else:
+        x, y = quad[i]
+        on_boundary = (
+            x <= _BOUNDARY_MARGIN
+            or x >= img_w - 1 - _BOUNDARY_MARGIN
+            or y <= _BOUNDARY_MARGIN
+            or y >= img_h - 1 - _BOUNDARY_MARGIN
+        )
+        if on_boundary:
             expanded[i] = quad[i]
+        else:
+            direction = quad[i] - centroid
+            length = np.linalg.norm(direction)
+            if length > 0:
+                unit = direction / length
+                expanded[i] = quad[i] + unit * expand_px
+            else:
+                expanded[i] = quad[i]
 
     expanded[:, 0] = np.clip(expanded[:, 0], 0, img_w - 1)
     expanded[:, 1] = np.clip(expanded[:, 1], 0, img_h - 1)

@@ -107,6 +107,10 @@ class Config:
     content_margin_padding: float = 0.0
     content_feather_sigma: int = 20
 
+    # Perspective validation (Stage 5)
+    perspective_max_skew_deg: float = 5.0
+    perspective_max_crop_frac: float = 0.30
+
     # Deskew (Stage 8)
     deskew_max_angle: float = 5.0
     deskew_angle_step: float = 0.1
@@ -315,6 +319,11 @@ class Config:
         _map_if_present(kwargs, content, "inset_fallback", "content_detect_inset_fallback")
         _map_if_present(kwargs, content, "margin_padding", "content_margin_padding")
         _map_if_present(kwargs, content, "feather_sigma", "content_feather_sigma")
+
+        # [perspective] section
+        perspective = toml_data.get("perspective", {})
+        _map_if_present(kwargs, perspective, "max_skew_deg", "perspective_max_skew_deg")
+        _map_if_present(kwargs, perspective, "max_crop_frac", "perspective_max_crop_frac")
 
         # [deskew] section
         deskew = toml_data.get("deskew", {})

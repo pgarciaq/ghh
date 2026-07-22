@@ -51,11 +51,13 @@ def run_analyze(
 
     images = []
     exif_orientations = []
+    exif_metas = []
     for p in sample_paths:
         img, meta = load_image(p)
         if img is not None:
             images.append(img)
             exif_orientations.append(meta.get("orientation", None))
+            exif_metas.append(meta)
 
     if len(images) < 3:
         logger.warning("Fewer than 3 valid samples, using defaults")
@@ -78,7 +80,7 @@ def run_analyze(
 
     ink_result = _discover_ink_color(cropped_pages)
     layout_result = _analyze_layout(cropped_pages, ink_result)
-    photo_result = _analyze_photography(images)
+    photo_result = _analyze_photography(images, exif_metas)
     condition_result = _analyze_condition(cropped_pages, ink_result)
 
     toml_path = _write_book_toml(
@@ -291,7 +293,10 @@ def _has_border_frame(page: np.ndarray) -> bool:
 # Photography condition analysis
 # ---------------------------------------------------------------------------
 
-def _analyze_photography(images: list[np.ndarray]) -> dict:
+def _analyze_photography(
+    images: list[np.ndarray],
+    exif_metas: list[dict] | None = None,
+) -> dict:
     """Detect photography conditions from full (uncropped) images."""
     hotspot_count = 0
     finger_count = 0
@@ -315,15 +320,160 @@ def _analyze_photography(images: list[np.ndarray]) -> dict:
     else:
         cast_label = "strong_warm"
 
+    k1, k2 = _detect_lens_distortion(images, exif_metas or [])
+
     return {
         "has_flash_hotspots": hotspot_count > len(images) * 0.3,
         "color_cast_detected": cast_label,
         "background_contrast": "dark_on_light",
         "shadow_severity": "none",
-        "lens_distortion_k1": 0.0,
-        "lens_distortion_k2": 0.0,
+        "lens_distortion_k1": k1,
+        "lens_distortion_k2": k2,
         "fingers_detected": finger_count > len(images) * 0.3,
     }
+
+
+# ---------------------------------------------------------------------------
+# Lens distortion detection via lensfun
+# ---------------------------------------------------------------------------
+
+def _detect_lens_distortion(
+    images: list[np.ndarray],
+    exif_metas: list[dict],
+) -> tuple[float, float]:
+    """Detect lens distortion coefficients using the lensfun database.
+
+    Reads camera make/model and focal length from EXIF, looks up the
+    lensfun distortion profile, generates an undistortion map, and fits
+    OpenCV k1/k2 coefficients so Stage 3 can use cv2.undistort().
+
+    Returns (k1, k2), defaulting to (0.0, 0.0) if lensfunpy is not
+    installed or the camera is not in the database.
+    """
+    try:
+        import lensfunpy
+    except ImportError:
+        logger.debug("lensfunpy not installed, skipping lens detection")
+        return 0.0, 0.0
+
+    camera_make, camera_model, focal_length, f_number = (
+        _exif_camera_info(exif_metas)
+    )
+    if not camera_make or not camera_model:
+        logger.info("No camera make/model in EXIF, skipping lens detection")
+        return 0.0, 0.0
+
+    db = lensfunpy.Database()
+    cameras = [
+        c for c in db.find_cameras()
+        if camera_make.lower() in c.maker.lower()
+        and camera_model.lower() in c.model.lower()
+    ]
+    if not cameras:
+        logger.info(
+            "Camera '%s %s' not in lensfun database, skipping lens correction",
+            camera_make, camera_model,
+        )
+        return 0.0, 0.0
+
+    cam = cameras[0]
+    lenses = db.find_lenses(cam)
+    if not lenses:
+        logger.info("No lens profile for %s %s", cam.maker, cam.model)
+        return 0.0, 0.0
+
+    lens = lenses[0]
+    h, w = images[0].shape[:2]
+    focal = focal_length or lens.min_focal
+
+    mod = lensfunpy.Modifier(lens, cam.crop_factor, w, h)
+    mod.initialize(focal, f_number or 0, 1000.0)
+
+    undist_coords = mod.apply_geometry_distortion()
+    if undist_coords is None:
+        logger.info("lensfun returned no distortion data for %s", lens.model)
+        return 0.0, 0.0
+
+    k1, k2 = _fit_k1_k2(undist_coords, w, h)
+
+    logger.info(
+        "Lens distortion from lensfun (%s %s, focal=%.1fmm): "
+        "k1=%.6f, k2=%.6f",
+        cam.maker, cam.model, focal, k1, k2,
+    )
+    return k1, k2
+
+
+def _exif_camera_info(
+    exif_metas: list[dict],
+) -> tuple[str | None, str | None, float | None, float | None]:
+    """Extract consistent camera make/model/focal from EXIF samples."""
+    for meta in exif_metas:
+        make = meta.get("camera_make")
+        model = meta.get("camera_model")
+        if make and model:
+            focal = meta.get("focal_length")
+            f_number = meta.get("f_number")
+            if isinstance(focal, (int, float)):
+                focal = float(focal)
+            else:
+                focal = None
+            if isinstance(f_number, (int, float)):
+                f_number = float(f_number)
+            else:
+                f_number = None
+            return make, model, focal, f_number
+    return None, None, None, None
+
+
+def _fit_k1_k2(
+    undist_coords: np.ndarray,
+    w: int,
+    h: int,
+) -> tuple[float, float]:
+    """Fit OpenCV radial distortion k1, k2 from a lensfun undistortion map.
+
+    The OpenCV model maps distorted radius r_d to undistorted r_u:
+        r_u = r_d * (1 + k1*r_d^2 + k2*r_d^4)
+
+    We sample the lensfun map at various radii, compute the ratio
+    r_u/r_d, and fit a polynomial in r_d^2 to extract k1 and k2.
+    """
+    cx, cy = w / 2.0, h / 2.0
+    max_r = np.sqrt(cx**2 + cy**2)
+
+    r_distorted = []
+    ratios = []
+
+    n_samples = 200
+    for i in range(n_samples):
+        angle = 2 * np.pi * i / n_samples
+        for frac in np.linspace(0.05, 0.95, 20):
+            r = frac * max_r
+            px = int(cx + r * np.cos(angle))
+            py = int(cy + r * np.sin(angle))
+            if 0 <= px < w and 0 <= py < h:
+                ux, uy = undist_coords[py, px]
+                r_u = np.sqrt((ux - cx) ** 2 + (uy - cy) ** 2)
+                if r > 1.0:
+                    r_distorted.append(r / max_r)
+                    ratios.append(r_u / r)
+
+    if len(r_distorted) < 10:
+        return 0.0, 0.0
+
+    r_arr = np.array(r_distorted)
+    ratio_arr = np.array(ratios)
+
+    r2 = r_arr**2
+    r4 = r_arr**4
+    A = np.column_stack([r2, r4])
+    b = ratio_arr - 1.0
+
+    result, _, _, _ = np.linalg.lstsq(A, b, rcond=None)
+    k1, k2 = float(result[0]), float(result[1])
+
+    return round(k1, 8), round(k2, 8)
 
 
 def _has_hotspot(img: np.ndarray) -> bool:
@@ -444,7 +594,6 @@ def _fading_score(page: np.ndarray) -> float:
     """Score ink fading by measuring saturation of colored regions."""
     hsv = cv2.cvtColor(page, cv2.COLOR_BGR2HSV)
     s = hsv[:, :, 1]
-    v = hsv[:, :, 2]
 
     colored = s > 20
     if colored.sum() < 100:

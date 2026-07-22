@@ -131,6 +131,120 @@ class TestPerspectiveStageContract:
 
 
 # ---------------------------------------------------------------------------
+# TestQuadValidation
+# ---------------------------------------------------------------------------
+
+class TestQuadValidation:
+    """Test boundary detection, skew measurement, and crop ratio helpers."""
+
+    def test_no_boundary_corners(self):
+        from ghh.stages.perspective import _count_boundary_corners
+
+        quad = np.array([[100, 100], [700, 100], [700, 500], [100, 500]], dtype=np.float32)
+        assert _count_boundary_corners(quad, 600, 800) == 0
+
+    def test_one_boundary_corner(self):
+        from ghh.stages.perspective import _count_boundary_corners
+
+        quad = np.array([[0, 100], [700, 100], [700, 500], [100, 500]], dtype=np.float32)
+        assert _count_boundary_corners(quad, 600, 800) == 1
+
+    def test_three_boundary_corners(self):
+        from ghh.stages.perspective import _count_boundary_corners
+
+        quad = np.array([[0, 0], [799, 100], [799, 500], [100, 500]], dtype=np.float32)
+        assert _count_boundary_corners(quad, 600, 800) == 3
+
+    def test_four_boundary_corners(self):
+        from ghh.stages.perspective import _count_boundary_corners
+
+        quad = np.array([[0, 0], [799, 0], [799, 599], [0, 599]], dtype=np.float32)
+        assert _count_boundary_corners(quad, 600, 800) == 4
+
+    def test_skew_horizontal_quad(self):
+        from ghh.stages.perspective import _quad_skew_degrees
+
+        quad = np.array([[0, 0], [600, 0], [600, 400], [0, 400]], dtype=np.float32)
+        assert _quad_skew_degrees(quad) < 0.1
+
+    def test_skew_tilted_quad(self):
+        from ghh.stages.perspective import _quad_skew_degrees
+
+        quad = np.array([[0, 0], [600, 50], [600, 450], [0, 400]], dtype=np.float32)
+        skew = _quad_skew_degrees(quad)
+        assert 4.0 < skew < 6.0
+
+    def test_crop_ratio_full_image(self):
+        from ghh.stages.perspective import _crop_ratio
+
+        quad = np.array([[0, 0], [800, 0], [800, 600], [0, 600]], dtype=np.float32)
+        assert _crop_ratio(quad, 600, 800) < 0.01
+
+    def test_crop_ratio_half_image(self):
+        from ghh.stages.perspective import _crop_ratio
+
+        quad = np.array([[200, 150], [600, 150], [600, 450], [200, 450]], dtype=np.float32)
+        ratio = _crop_ratio(quad, 600, 800)
+        assert 0.4 < ratio < 0.8
+
+    def test_should_skip_excessive_skew(self):
+        from ghh.stages.perspective import _should_skip_warp
+
+        result = _should_skip_warp(0, 6.0, 0.05, 5.0, 0.30)
+        assert result == "excessive_skew"
+
+    def test_should_skip_excessive_crop(self):
+        from ghh.stages.perspective import _should_skip_warp
+
+        result = _should_skip_warp(0, 1.0, 0.40, 5.0, 0.30)
+        assert result == "excessive_crop"
+
+    def test_should_not_skip_good_quad(self):
+        from ghh.stages.perspective import _should_skip_warp
+
+        result = _should_skip_warp(1, 1.5, 0.08, 5.0, 0.30)
+        assert result is None
+
+    def test_should_not_skip_boundary_corners_with_low_skew(self):
+        from ghh.stages.perspective import _should_skip_warp
+
+        result = _should_skip_warp(4, 3.0, 0.10, 5.0, 0.30)
+        assert result is None
+
+
+class TestPerspectiveUnreliablePassthrough:
+    """Test that unreliable quads trigger passthrough."""
+
+    def test_high_skew_quad_passes_through(self):
+        from ghh.stages.perspective import PerspectiveStage
+
+        stage = PerspectiveStage()
+        img = np.full((4000, 3000, 3), 128, dtype=np.uint8)
+        cfg = Config(input_dir=Path("/tmp"))
+
+        quad = [[100, 100], [2900, 500], [2900, 3900], [100, 3500]]
+        metadata = {"quad_corners": quad, "page_type": "music"}
+        result, meta = stage.process_image(img, metadata, cfg)
+
+        np.testing.assert_array_equal(result, img)
+        assert meta["method"] == "passthrough_unreliable"
+        assert meta["skip_reason"] == "excessive_skew"
+
+    def test_reliable_quad_applies_warp(self):
+        from ghh.stages.perspective import PerspectiveStage
+
+        stage = PerspectiveStage()
+        img = np.full((1000, 800, 3), 128, dtype=np.uint8)
+        cfg = Config(input_dir=Path("/tmp"))
+
+        quad = [[20, 20], [780, 20], [780, 980], [20, 980]]
+        metadata = {"quad_corners": quad}
+        result, meta = stage.process_image(img, metadata, cfg)
+
+        assert meta["method"] == "warpPerspective"
+
+
+# ---------------------------------------------------------------------------
 # TestPerspectivePassthrough
 # ---------------------------------------------------------------------------
 
@@ -192,11 +306,11 @@ class TestPerspectiveCorrection:
 
         stage = PerspectiveStage()
         page = make_music_page(width=600, height=400)
-        photo = make_page_on_background(page, border=80)
+        photo = make_page_on_background(page, border=30)
         cfg = Config(input_dir=Path("/tmp"))
 
         quad = np.array([
-            [80, 80], [680, 80], [680, 480], [80, 480],
+            [30, 30], [630, 30], [630, 430], [30, 430],
         ], dtype=np.float32)
         metadata = {"quad_corners": quad.tolist()}
 
@@ -211,7 +325,7 @@ class TestPerspectiveCorrection:
         from ghh.stages.perspective import PerspectiveStage
 
         stage = PerspectiveStage()
-        photo, quad = _make_skewed_page_with_quad(border=80, skew=0.04)
+        photo, quad = _make_skewed_page_with_quad(border=30, skew=0.02)
         cfg = Config(input_dir=Path("/tmp"))
 
         metadata = {"quad_corners": quad.tolist()}
@@ -232,12 +346,13 @@ class TestPerspectiveCorrection:
         cfg = Config(input_dir=Path("/tmp"))
 
         quad = np.array([
-            [100, 100], [700, 100], [680, 500], [120, 500],
+            [20, 20], [780, 20], [760, 580], [40, 580],
         ], dtype=np.float32)
         metadata = {"quad_corners": quad.tolist()}
 
         result, meta = stage.process_image(img, metadata, cfg)
 
+        assert meta["method"] == "warpPerspective"
         top_w = np.linalg.norm(quad[1] - quad[0])
         bot_w = np.linalg.norm(quad[2] - quad[3])
         expected_w = int(max(top_w, bot_w))
@@ -249,11 +364,11 @@ class TestPerspectiveCorrection:
 
         stage = PerspectiveStage()
         page = make_music_page(width=600, height=400)
-        photo = make_page_on_background(page, border=80)
+        photo = make_page_on_background(page, border=30)
         cfg = Config(input_dir=Path("/tmp"))
 
         quad = np.array([
-            [80, 80], [680, 80], [680, 480], [80, 480],
+            [30, 30], [630, 30], [630, 430], [30, 430],
         ], dtype=np.float32)
         metadata = {"quad_corners": quad.tolist()}
 
@@ -324,12 +439,13 @@ class TestBackgroundFill:
         cfg = Config(input_dir=Path("/tmp"))
 
         quad = np.array([
-            [100, 100], [700, 50], [720, 550], [80, 500],
+            [20, 20], [780, 10], [790, 580], [10, 570],
         ], dtype=np.float32)
         metadata = {"quad_corners": quad.tolist()}
 
         result, meta = stage.process_image(img, metadata, cfg)
 
+        assert meta["method"] == "warpPerspective"
         bg_color = meta["background_color"]
         for i in range(3):
             assert abs(bg_color[i] - bg[i]) < 20, (
@@ -372,7 +488,7 @@ class TestPerspectiveMetadata:
         img = np.full((600, 800, 3), 128, dtype=np.uint8)
         cfg = Config(input_dir=Path("/tmp"))
 
-        metadata = {"quad_corners": [[80, 80], [720, 80], [720, 520], [80, 520]]}
+        metadata = {"quad_corners": [[20, 20], [780, 20], [780, 580], [20, 580]]}
         _, meta = stage.process_image(img, metadata, cfg)
 
         assert meta["stage"] == "perspective"
@@ -436,9 +552,9 @@ class TestSidecarPropagation:
         from ghh.stages.perspective import PerspectiveStage
 
         page = make_music_page(width=600, height=400)
-        photo = make_page_on_background(page, border=80)
+        photo = make_page_on_background(page, border=30)
 
-        quad = [[80, 80], [680, 80], [680, 480], [80, 480]]
+        quad = [[30, 30], [630, 30], [630, 430], [30, 430]]
         s4_meta = {"stage": "page_detect", "quad_corners": quad, "page_type": "music"}
 
         input_dir = _setup_stage4_output(
@@ -491,8 +607,8 @@ class TestPerspectiveStageRun:
         from ghh.stages.perspective import PerspectiveStage
 
         page = make_music_page(width=600, height=400)
-        photo = make_page_on_background(page, border=80)
-        quad = [[80, 80], [680, 80], [680, 480], [80, 480]]
+        photo = make_page_on_background(page, border=30)
+        quad = [[30, 30], [630, 30], [630, 430], [30, 430]]
         s4_meta = {"stage": "page_detect", "quad_corners": quad}
 
         input_dir = _setup_stage4_output(
@@ -509,13 +625,13 @@ class TestPerspectiveStageRun:
     def test_processes_multiple_images(self, tmp_path):
         from ghh.stages.perspective import PerspectiveStage
 
-        quad = [[80, 80], [680, 80], [680, 480], [80, 480]]
+        quad = [[30, 30], [630, 30], [630, 430], [30, 430]]
         s4_meta = {"stage": "page_detect", "quad_corners": quad}
 
         images = {}
         for i in range(3):
             page = make_music_page(width=600, height=400)
-            photo = make_page_on_background(page, border=80)
+            photo = make_page_on_background(page, border=30)
             images[f"IMG_{i:04d}.png"] = (photo, s4_meta)
 
         input_dir = _setup_stage4_output(tmp_path, images)
@@ -533,8 +649,8 @@ class TestPerspectiveStageRun:
         from ghh.stages.perspective import PerspectiveStage
 
         page = make_music_page(width=600, height=400)
-        photo = make_page_on_background(page, border=80)
-        quad = [[80, 80], [680, 80], [680, 480], [80, 480]]
+        photo = make_page_on_background(page, border=30)
+        quad = [[30, 30], [630, 30], [630, 430], [30, 430]]
         s4_meta = {"stage": "page_detect", "quad_corners": quad}
 
         input_dir = _setup_stage4_output(
@@ -557,8 +673,8 @@ class TestPerspectiveStageRun:
         from ghh.stages.perspective import PerspectiveStage
 
         page = make_music_page(width=600, height=400)
-        photo = make_page_on_background(page, border=80)
-        quad = [[80, 80], [680, 80], [680, 480], [80, 480]]
+        photo = make_page_on_background(page, border=30)
+        quad = [[30, 30], [630, 30], [630, 430], [30, 430]]
         s4_meta = {"stage": "page_detect", "quad_corners": quad}
 
         input_dir = _setup_stage4_output(
@@ -579,8 +695,8 @@ class TestPerspectiveStageRun:
         from ghh.stages.perspective import PerspectiveStage
 
         page = make_music_page(width=600, height=400)
-        photo = make_page_on_background(page, border=80)
-        quad = [[80, 80], [680, 80], [680, 480], [80, 480]]
+        photo = make_page_on_background(page, border=30)
+        quad = [[30, 30], [630, 30], [630, 430], [30, 430]]
         s4_meta = {"stage": "page_detect", "quad_corners": quad}
 
         input_dir = _setup_stage4_output(
@@ -600,7 +716,7 @@ class TestPerspectiveStageRun:
     def test_skewed_page_is_rectified_in_run(self, tmp_path):
         from ghh.stages.perspective import PerspectiveStage
 
-        photo, quad = _make_skewed_page_with_quad(border=80, skew=0.04)
+        photo, quad = _make_skewed_page_with_quad(border=30, skew=0.02)
         s4_meta = {"stage": "page_detect", "quad_corners": quad.tolist()}
 
         input_dir = _setup_stage4_output(

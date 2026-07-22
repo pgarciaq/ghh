@@ -264,6 +264,31 @@ class TestQuadExpansion:
         result = _expand_quad(quad, 600, 800, 0.0)
         np.testing.assert_array_equal(result, quad)
 
+    def test_expand_skips_boundary_clipped_corners(self):
+        """Corners already on the image boundary should not be expanded."""
+        from ghh.stages.page_detect import _expand_quad
+
+        quad = np.array(
+            [[0, 0], [500, 100], [500, 400], [100, 400]], dtype=np.float32,
+        )
+        expanded = _expand_quad(quad, 600, 800, 0.05)
+
+        np.testing.assert_array_equal(expanded[0], quad[0])
+        assert expanded[1][0] > quad[1][0], "Interior TR should expand right"
+        assert expanded[2][0] > quad[2][0], "Interior BR should expand right"
+        assert expanded[3][0] < quad[3][0], "Interior BL should expand left"
+
+    def test_expand_skips_all_boundary_corners(self):
+        """When all corners are on the boundary, none should be expanded."""
+        from ghh.stages.page_detect import _expand_quad
+
+        quad = np.array(
+            [[0, 0], [799, 0], [799, 599], [0, 599]], dtype=np.float32,
+        )
+        expanded = _expand_quad(quad, 600, 800, 0.05)
+
+        np.testing.assert_array_equal(expanded, quad)
+
 
 class TestQuadRefinement:
     """Test contour-to-quad refinement logic."""

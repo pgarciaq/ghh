@@ -10,7 +10,6 @@ from pathlib import Path
 import cv2
 import numpy as np
 from PIL import Image as PILImage
-from PIL import ExifTags
 
 logger = logging.getLogger(__name__)
 
@@ -44,12 +43,14 @@ _EXIF_FLIPS: dict[int, int | None] = {
 # EXIF tags we want to extract
 _WANTED_TAGS = {
     0x0112: "orientation",
+    0x010F: "camera_make",
     0x0110: "camera_model",
     0x9003: "datetime_original",
     0x011A: "x_resolution",
     0x011B: "y_resolution",
     0x0128: "resolution_unit",
     0x920A: "focal_length",
+    0x829D: "f_number",
     0x8827: "iso",
     0x829A: "exposure_time",
 }
@@ -79,10 +80,11 @@ def load_image(path: str | Path) -> tuple[np.ndarray, dict]:
         pil_img = PILImage.open(path)
         exif_data = pil_img.getexif()
 
+        exif_ifd = exif_data.get_ifd(0x8769)
+
         for tag_id, field_name in _WANTED_TAGS.items():
-            if tag_id in exif_data:
-                val = exif_data[tag_id]
-                # Convert IFDRational and similar types to plain Python types
+            val = exif_data.get(tag_id) or exif_ifd.get(tag_id)
+            if val is not None:
                 if hasattr(val, "numerator") and hasattr(val, "denominator"):
                     val = float(val)
                 meta[field_name] = val

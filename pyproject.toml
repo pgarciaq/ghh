@@ -30,6 +30,9 @@ ai = [
 omr = [
     "openvino>=2024.0",
 ]
+lens = [
+    "lensfunpy>=1.16",
+]
 historical-ocr = [
     "kraken>=5.0; python_version<'3.14'",
 ]
