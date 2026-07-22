@@ -235,6 +235,11 @@ def _refine_quad_with_borders(
 ) -> tuple[np.ndarray, bool]:
     """Clip the quad edges inward to the detected page border lines.
 
+    Only adjusts the **left and right** (vertical border) edges.
+    Horizontal borders (top/bottom) are intentionally not clipped
+    because page titles, page numbers, and margin annotations sit
+    outside the red border lines that define the music area.
+
     Only adjusts quad edges that extend **beyond** the detected border
     (i.e., into non-page areas like fore edges or desk).  Edges that
     are already inside the border are left unchanged.
@@ -270,23 +275,11 @@ def _refine_quad_with_borders(
             refined[2][0] = rx
             applied = True
 
-    if borders.top_y is not None:
-        ty = borders.top_y - _BORDER_OFFSET_PX
-        if refined[0][1] < ty:
-            refined[0][1] = ty
-            applied = True
-        if refined[1][1] < ty:
-            refined[1][1] = ty
-            applied = True
-
-    if borders.bottom_y is not None:
-        by = borders.bottom_y + _BORDER_OFFSET_PX
-        if refined[2][1] > by:
-            refined[2][1] = by
-            applied = True
-        if refined[3][1] > by:
-            refined[3][1] = by
-            applied = True
+    # Horizontal borders (top_y, bottom_y) are detected but NOT used
+    # for clipping.  In Gregorian chant books the red horizontal lines
+    # mark the music area, while titles, page numbers, and marginal
+    # notes sit above/below them.  Clipping to these lines would lose
+    # page content.
 
     refined[:, 0] = np.clip(refined[:, 0], 0, img_w - 1)
     refined[:, 1] = np.clip(refined[:, 1], 0, img_h - 1)

@@ -801,8 +801,8 @@ class TestBorderRefinement:
         assert "left_x" in br
         assert "right_x" in br
 
-    def test_clips_all_four_sides(self):
-        """When all four borders are detected, all sides should clip."""
+    def test_clips_only_vertical_borders(self):
+        """Only left/right borders clip; top/bottom are preserved."""
         from ghh.stages.page_detect import PageBorders, _refine_quad_with_borders
 
         quad = np.array(
@@ -817,10 +817,14 @@ class TestBorderRefinement:
         refined, applied = _refine_quad_with_borders(quad, borders, 600, 800, 0.5)
 
         assert applied
-        assert refined[0][0] >= 47, "TL.x clipped"
-        assert refined[0][1] >= 37, "TL.y clipped"
-        assert refined[2][0] <= 753, "BR.x clipped"
-        assert refined[2][1] <= 563, "BR.y clipped"
+        assert refined[0][0] >= 47, "TL.x clipped to left border"
+        assert refined[2][0] <= 753, "BR.x clipped to right border"
+        # Horizontal borders should NOT clip -- titles/page numbers
+        # sit outside the red border lines
+        assert refined[0][1] == 5, "TL.y should be unchanged"
+        assert refined[1][1] == 5, "TR.y should be unchanged"
+        assert refined[2][1] == 595, "BR.y should be unchanged"
+        assert refined[3][1] == 595, "BL.y should be unchanged"
 
 
 # ---------------------------------------------------------------------------
