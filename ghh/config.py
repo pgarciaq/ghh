@@ -110,6 +110,9 @@ class Config:
     # Perspective validation (Stage 5)
     perspective_max_skew_deg: float = 5.0
     perspective_max_crop_frac: float = 0.30
+    perspective_output_padding_frac: float = 0.02
+    perspective_near_rect_threshold_deg: float = 2.0
+    perspective_max_introduced_tilt_deg: float = 1.5
 
     # Deskew (Stage 8)
     deskew_max_angle: float = 5.0
@@ -324,6 +327,18 @@ class Config:
         perspective = toml_data.get("perspective", {})
         _map_if_present(kwargs, perspective, "max_skew_deg", "perspective_max_skew_deg")
         _map_if_present(kwargs, perspective, "max_crop_frac", "perspective_max_crop_frac")
+        _map_if_present(
+            kwargs, perspective, "output_padding_frac",
+            "perspective_output_padding_frac",
+        )
+        _map_if_present(
+            kwargs, perspective, "near_rect_threshold_deg",
+            "perspective_near_rect_threshold_deg",
+        )
+        _map_if_present(
+            kwargs, perspective, "max_introduced_tilt_deg",
+            "perspective_max_introduced_tilt_deg",
+        )
 
         # [deskew] section
         deskew = toml_data.get("deskew", {})

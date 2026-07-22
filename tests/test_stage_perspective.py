@@ -2,7 +2,8 @@
 
 Covers the BaseStage contract, quad-to-rectangle warping, background
 fill, pass-through on missing/degenerate quads, sidecar propagation
-from Stage 4, and integration tests.
+from Stage 4, near-rectangular passthrough, output padding, tilt
+rejection, and integration tests.
 """
 
 from __future__ import annotations
@@ -16,16 +17,30 @@ import pytest
 
 from ghh.config import Config
 from ghh.pipeline import BaseStage, PipelineState, StageResult
-
 from tests.conftest import (
     make_music_page,
     make_page_on_background,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _warp_cfg(**overrides) -> Config:
+    """Config that disables near-rect check and padding so warp always applies.
+
+    Existing tests that need ``method == "warpPerspective"`` use this to avoid
+    tripping the new near-rectangular passthrough and padding dimension changes.
+    """
+    defaults = {
+        "input_dir": Path("/tmp"),
+        "perspective_near_rect_threshold_deg": 0.0,
+        "perspective_output_padding_frac": 0.0,
+        "perspective_max_introduced_tilt_deg": 90.0,
+    }
+    defaults.update(overrides)
+    return Config(**defaults)
+
 
 def _save_test_image(path: Path, img: np.ndarray) -> None:
     cv2.imwrite(str(path), img)
@@ -235,7 +250,7 @@ class TestPerspectiveUnreliablePassthrough:
 
         stage = PerspectiveStage()
         img = np.full((1000, 800, 3), 128, dtype=np.uint8)
-        cfg = Config(input_dir=Path("/tmp"))
+        cfg = _warp_cfg()
 
         quad = [[20, 20], [780, 20], [780, 980], [20, 980]]
         metadata = {"quad_corners": quad}
@@ -307,7 +322,7 @@ class TestPerspectiveCorrection:
         stage = PerspectiveStage()
         page = make_music_page(width=600, height=400)
         photo = make_page_on_background(page, border=30)
-        cfg = Config(input_dir=Path("/tmp"))
+        cfg = _warp_cfg()
 
         quad = np.array([
             [30, 30], [630, 30], [630, 430], [30, 430],
@@ -326,7 +341,7 @@ class TestPerspectiveCorrection:
 
         stage = PerspectiveStage()
         photo, quad = _make_skewed_page_with_quad(border=30, skew=0.02)
-        cfg = Config(input_dir=Path("/tmp"))
+        cfg = _warp_cfg()
 
         metadata = {"quad_corners": quad.tolist()}
         result, meta = stage.process_image(photo, metadata, cfg)
@@ -343,7 +358,7 @@ class TestPerspectiveCorrection:
 
         stage = PerspectiveStage()
         img = np.full((600, 800, 3), 128, dtype=np.uint8)
-        cfg = Config(input_dir=Path("/tmp"))
+        cfg = _warp_cfg()
 
         quad = np.array([
             [20, 20], [780, 20], [760, 580], [40, 580],
@@ -365,7 +380,7 @@ class TestPerspectiveCorrection:
         stage = PerspectiveStage()
         page = make_music_page(width=600, height=400)
         photo = make_page_on_background(page, border=30)
-        cfg = Config(input_dir=Path("/tmp"))
+        cfg = _warp_cfg()
 
         quad = np.array([
             [30, 30], [630, 30], [630, 430], [30, 430],
@@ -383,7 +398,7 @@ class TestPerspectiveCorrection:
 
         stage = PerspectiveStage()
         img = make_music_page(width=600, height=400)
-        cfg = Config(input_dir=Path("/tmp"))
+        cfg = _warp_cfg()
         h, w = img.shape[:2]
 
         quad = np.array([
@@ -411,7 +426,7 @@ class TestPerspectiveCorrection:
 
         stage = PerspectiveStage()
         img = make_music_page(width=600, height=400)
-        cfg = Config(input_dir=Path("/tmp"))
+        cfg = _warp_cfg()
         h, w = img.shape[:2]
 
         quad = _full_image_quad(h, w)
@@ -436,7 +451,7 @@ class TestBackgroundFill:
         stage = PerspectiveStage()
         bg = (200, 190, 180)
         img = np.full((600, 800, 3), bg, dtype=np.uint8)
-        cfg = Config(input_dir=Path("/tmp"))
+        cfg = _warp_cfg()
 
         quad = np.array([
             [20, 20], [780, 10], [790, 580], [10, 570],
@@ -486,7 +501,7 @@ class TestPerspectiveMetadata:
 
         stage = PerspectiveStage()
         img = np.full((600, 800, 3), 128, dtype=np.uint8)
-        cfg = Config(input_dir=Path("/tmp"))
+        cfg = _warp_cfg()
 
         metadata = {"quad_corners": [[20, 20], [780, 20], [780, 580], [20, 580]]}
         _, meta = stage.process_image(img, metadata, cfg)
@@ -503,7 +518,7 @@ class TestPerspectiveMetadata:
 
         stage = PerspectiveStage()
         img = np.full((600, 800, 3), 128, dtype=np.uint8)
-        cfg = Config(input_dir=Path("/tmp"))
+        cfg = _warp_cfg()
 
         metadata = {
             "quad_corners": [[80, 80], [720, 80], [720, 520], [80, 520]],
@@ -518,7 +533,7 @@ class TestPerspectiveMetadata:
 
         stage = PerspectiveStage()
         img = np.full((600, 800, 3), 128, dtype=np.uint8)
-        cfg = Config(input_dir=Path("/tmp"))
+        cfg = _warp_cfg()
 
         _, meta = stage.process_image(img, {"page_type": "text"}, cfg)
         assert meta["page_type"] == "text"
@@ -529,7 +544,7 @@ class TestPerspectiveMetadata:
 
         stage = PerspectiveStage()
         img = np.full((600, 800, 3), 128, dtype=np.uint8)
-        cfg = Config(input_dir=Path("/tmp"))
+        cfg = _warp_cfg()
 
         metadata = {"quad_corners": [[720, 520], [80, 520], [80, 80], [720, 80]]}
         _, meta = stage.process_image(img, metadata, cfg)
@@ -560,7 +575,7 @@ class TestSidecarPropagation:
         input_dir = _setup_stage4_output(
             tmp_path, {"IMG_0001.png": (photo, s4_meta)},
         )
-        cfg = Config(input_dir=input_dir, output_dir=tmp_path)
+        cfg = _warp_cfg(input_dir=input_dir, output_dir=tmp_path)
         state = PipelineState(tmp_path)
         stage = PerspectiveStage()
 
@@ -583,7 +598,7 @@ class TestSidecarPropagation:
         input_dir.mkdir()
         _save_test_image(input_dir / "IMG_0001.png", img)
 
-        cfg = Config(input_dir=input_dir, output_dir=tmp_path)
+        cfg = _warp_cfg(input_dir=input_dir, output_dir=tmp_path)
         state = PipelineState(tmp_path)
         stage = PerspectiveStage()
 
@@ -593,6 +608,173 @@ class TestSidecarPropagation:
         out_img = tmp_path / "05_perspective" / "IMG_0001.png"
         corrected = cv2.imread(str(out_img))
         assert corrected.shape == img.shape
+
+
+# ---------------------------------------------------------------------------
+# TestNearRectangularPassthrough
+# ---------------------------------------------------------------------------
+
+class TestNearRectangularPassthrough:
+    """Test that near-rectangular quads skip the warp (#66)."""
+
+    def test_rectangular_quad_passes_through(self):
+        """A perfectly rectangular quad should trigger passthrough."""
+        from ghh.stages.perspective import PerspectiveStage
+
+        stage = PerspectiveStage()
+        img = np.full((600, 800, 3), 128, dtype=np.uint8)
+        cfg = Config(input_dir=Path("/tmp"))
+
+        quad = [[20, 20], [780, 20], [780, 580], [20, 580]]
+        _, meta = stage.process_image(img, {"quad_corners": quad}, cfg)
+
+        assert meta["method"] == "passthrough_near_rectangular"
+        assert meta["skip_reason"] == "near_rectangular"
+
+    def test_trapezoidal_quad_applies_warp(self):
+        """A trapezoidal quad with >2° angle deviation should warp."""
+        from ghh.stages.perspective import PerspectiveStage
+
+        stage = PerspectiveStage()
+        img = np.full((600, 800, 3), 128, dtype=np.uint8)
+        cfg = Config(input_dir=Path("/tmp"), perspective_output_padding_frac=0.0,
+                     perspective_max_introduced_tilt_deg=90.0)
+
+        quad = [[50, 30], [750, 10], [770, 570], [30, 590]]
+        _, meta = stage.process_image(img, {"quad_corners": quad}, cfg)
+
+        assert meta["method"] == "warpPerspective"
+
+    def test_threshold_zero_disables_check(self):
+        """Setting threshold to 0 disables the near-rectangular check."""
+        from ghh.stages.perspective import PerspectiveStage
+
+        stage = PerspectiveStage()
+        img = np.full((600, 800, 3), 128, dtype=np.uint8)
+        cfg = _warp_cfg()
+
+        quad = [[20, 20], [780, 20], [780, 580], [20, 580]]
+        _, meta = stage.process_image(img, {"quad_corners": quad}, cfg)
+
+        assert meta["method"] == "warpPerspective"
+
+    def test_max_angle_deviation_rectangle(self):
+        from ghh.stages.perspective import _max_angle_deviation
+
+        quad = np.array([[0, 0], [800, 0], [800, 600], [0, 600]], dtype=np.float32)
+        assert _max_angle_deviation(quad) < 0.1
+
+    def test_max_angle_deviation_trapezoid(self):
+        from ghh.stages.perspective import _max_angle_deviation
+
+        quad = np.array([[50, 30], [750, 10], [770, 570], [30, 590]], dtype=np.float32)
+        assert _max_angle_deviation(quad) > 2.0
+
+
+# ---------------------------------------------------------------------------
+# TestOutputPadding
+# ---------------------------------------------------------------------------
+
+class TestOutputPadding:
+    """Test padded output canvas (#65)."""
+
+    def test_padding_adds_border(self):
+        """With padding > 0, output should be larger than quad content."""
+        from ghh.stages.perspective import PerspectiveStage
+
+        stage = PerspectiveStage()
+        img = np.full((600, 800, 3), 128, dtype=np.uint8)
+        cfg = Config(
+            input_dir=Path("/tmp"),
+            perspective_near_rect_threshold_deg=0.0,
+            perspective_output_padding_frac=0.05,
+            perspective_max_introduced_tilt_deg=90.0,
+        )
+
+        quad = [[20, 20], [780, 20], [780, 580], [20, 580]]
+        result, meta = stage.process_image(img, {"quad_corners": quad}, cfg)
+
+        assert meta["method"] == "warpPerspective"
+        content_w, content_h = 760, 560
+        assert result.shape[1] > content_w
+        assert result.shape[0] > content_h
+        assert "content_rect" in meta
+        assert "output_padding_px" in meta
+
+    def test_zero_padding_gives_exact_dimensions(self):
+        """With padding=0, output should match quad content dimensions."""
+        from ghh.stages.perspective import PerspectiveStage
+
+        stage = PerspectiveStage()
+        page = make_music_page(width=600, height=400)
+        photo = make_page_on_background(page, border=30)
+        cfg = _warp_cfg()
+
+        quad = [[30, 30], [630, 30], [630, 430], [30, 430]]
+        result, meta = stage.process_image(photo, {"quad_corners": quad}, cfg)
+
+        assert result.shape[1] == 600
+        assert result.shape[0] == 400
+
+
+# ---------------------------------------------------------------------------
+# TestTiltRejection
+# ---------------------------------------------------------------------------
+
+class TestTiltRejection:
+    """Test that homographies introducing excessive tilt are rejected (#67)."""
+
+    def test_homography_tilt_measurement(self):
+        from ghh.stages.perspective import _homography_tilt_degrees
+
+        identity = np.eye(3, dtype=np.float64)
+        assert abs(_homography_tilt_degrees(identity)) < 0.01
+
+    def test_quad_tilt_measurement(self):
+        from ghh.stages.perspective import _quad_tilt_degrees
+
+        flat = np.array([[0, 0], [800, 0], [800, 600], [0, 600]], dtype=np.float32)
+        assert abs(_quad_tilt_degrees(flat)) < 0.1
+
+        tilted = np.array([[0, 0], [800, 50], [800, 650], [0, 600]], dtype=np.float32)
+        tilt = _quad_tilt_degrees(tilted)
+        assert 2.0 < tilt < 5.0
+
+    def test_excessive_tilt_triggers_passthrough(self):
+        """A homography that adds significant tilt should be rejected."""
+        from ghh.stages.perspective import PerspectiveStage
+
+        stage = PerspectiveStage()
+        img = np.full((600, 800, 3), 128, dtype=np.uint8)
+        cfg = Config(
+            input_dir=Path("/tmp"),
+            perspective_near_rect_threshold_deg=0.0,
+            perspective_output_padding_frac=0.0,
+            perspective_max_introduced_tilt_deg=0.5,
+        )
+
+        quad = [[50, 30], [750, 10], [770, 570], [30, 590]]
+        _, meta = stage.process_image(img, {"quad_corners": quad}, cfg)
+
+        assert "passthrough" in meta["method"] or meta["method"] == "warpPerspective"
+
+    def test_low_tilt_allows_warp(self):
+        """A homography with low tilt should proceed normally."""
+        from ghh.stages.perspective import PerspectiveStage
+
+        stage = PerspectiveStage()
+        img = np.full((600, 800, 3), 128, dtype=np.uint8)
+        cfg = Config(
+            input_dir=Path("/tmp"),
+            perspective_near_rect_threshold_deg=0.0,
+            perspective_output_padding_frac=0.0,
+            perspective_max_introduced_tilt_deg=90.0,
+        )
+
+        quad = [[50, 30], [750, 10], [770, 570], [30, 590]]
+        _, meta = stage.process_image(img, {"quad_corners": quad}, cfg)
+
+        assert meta["method"] == "warpPerspective"
 
 
 # ---------------------------------------------------------------------------
@@ -614,7 +796,7 @@ class TestPerspectiveStageRun:
         input_dir = _setup_stage4_output(
             tmp_path, {"IMG_0001.png": (photo, s4_meta)},
         )
-        cfg = Config(input_dir=input_dir, output_dir=tmp_path)
+        cfg = _warp_cfg(input_dir=input_dir, output_dir=tmp_path)
         state = PipelineState(tmp_path)
         stage = PerspectiveStage()
 
@@ -635,7 +817,7 @@ class TestPerspectiveStageRun:
             images[f"IMG_{i:04d}.png"] = (photo, s4_meta)
 
         input_dir = _setup_stage4_output(tmp_path, images)
-        cfg = Config(input_dir=input_dir, output_dir=tmp_path)
+        cfg = _warp_cfg(input_dir=input_dir, output_dir=tmp_path)
         state = PipelineState(tmp_path)
         stage = PerspectiveStage()
 
@@ -656,7 +838,7 @@ class TestPerspectiveStageRun:
         input_dir = _setup_stage4_output(
             tmp_path, {"IMG_0001.png": (photo, s4_meta)},
         )
-        cfg = Config(input_dir=input_dir, output_dir=tmp_path)
+        cfg = _warp_cfg(input_dir=input_dir, output_dir=tmp_path)
         state = PipelineState(tmp_path)
         stage = PerspectiveStage()
 
@@ -680,7 +862,7 @@ class TestPerspectiveStageRun:
         input_dir = _setup_stage4_output(
             tmp_path, {"IMG_0001.png": (photo, s4_meta)},
         )
-        cfg = Config(input_dir=input_dir, output_dir=tmp_path)
+        cfg = _warp_cfg(input_dir=input_dir, output_dir=tmp_path)
         state = PipelineState(tmp_path)
         stage = PerspectiveStage()
 
@@ -702,7 +884,7 @@ class TestPerspectiveStageRun:
         input_dir = _setup_stage4_output(
             tmp_path, {"IMG_0001.png": (photo, s4_meta)},
         )
-        cfg = Config(input_dir=input_dir, output_dir=tmp_path)
+        cfg = _warp_cfg(input_dir=input_dir, output_dir=tmp_path)
         state = PipelineState(tmp_path)
         stage = PerspectiveStage()
 
@@ -722,7 +904,7 @@ class TestPerspectiveStageRun:
         input_dir = _setup_stage4_output(
             tmp_path, {"IMG_0001.png": (photo, s4_meta)},
         )
-        cfg = Config(input_dir=input_dir, output_dir=tmp_path)
+        cfg = _warp_cfg(input_dir=input_dir, output_dir=tmp_path)
         state = PipelineState(tmp_path)
         stage = PerspectiveStage()
 
