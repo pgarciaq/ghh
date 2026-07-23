@@ -106,12 +106,34 @@
       </div>
 
       <div class="feature-card">
+        <span class="feature-icon">&#127925;</span>
+        <h3>Optical Music Recognition</h3>
+        <p>
+          Automatic transcription of square notation into machine-readable
+          <a href="https://gregorio-project.github.io/gabc/">GABC</a>
+          using <a href="https://pgarciaq.github.io/chant-omr/">ChantOMR</a>,
+          a specialist deep learning model deployed via OpenVINO.
+        </p>
+      </div>
+
+      <div class="feature-card">
         <span class="feature-icon">&#128196;</span>
         <h3>Searchable PDF Output</h3>
         <p>
           Assembles all processed pages into a single PDF with optimized
           JPEG compression. Optional OCR layer for Latin text makes the
           manuscript fully searchable.
+        </p>
+      </div>
+
+      <div class="feature-card">
+        <span class="feature-icon">&#128270;</span>
+        <h3>Comparison &amp; Publishing</h3>
+        <p>
+          Built-in tools to compare every pipeline stage side-by-side,
+          publish web-ready comparison sites, and generate interactive
+          flipbooks with page-turning animation.
+          <a href="{{ "demo/compare/" | relURL }}">Try the demo &rarr;</a>
         </p>
       </div>
 
@@ -304,32 +326,9 @@
   <div class="section-inner">
     <h2 class="section-title">Roadmap</h2>
     <p class="section-subtitle">
-      The core geometry pipeline is complete. Here is what comes next.
+      The geometry pipeline and orchestrator are complete. Here is what comes next.
     </p>
     <div class="roadmap-items">
-
-      <div class="roadmap-card">
-        <span class="roadmap-badge done">Done</span>
-        <h3>Pipeline Reordering</h3>
-        <p>
-          Stage 5 is now a <strong>Gentle Crop</strong> that crops to the page
-          bounding box without warping. Perspective correction moved to Stage 9
-          (after Deskew), eliminating overcropping and letting geometric corrections
-          build on each other. Quad corners propagate through all stages.
-        </p>
-      </div>
-
-      <div class="roadmap-card">
-        <span class="roadmap-badge done">Done</span>
-        <h3>Forked Pipeline &amp; Orchestrator</h3>
-        <p>
-          The pipeline forks after Gentle Crop into two branches:
-          a <strong>Book branch</strong> (Deskew &rarr; Perspective &rarr; Dewarp)
-          and a <strong>Score branch</strong> (Content Area &rarr; Staff Extract &rarr; OMR).
-          The orchestrator supports config-hash invalidation with downstream cascade,
-          per-stage end-of-run reports, and disk space warnings.
-        </p>
-      </div>
 
       <div class="roadmap-card">
         <span class="roadmap-badge next">Next</span>
@@ -372,36 +371,12 @@
       </div>
 
       <div class="roadmap-card">
-        <span class="roadmap-badge done">Done</span>
-        <h3>Stage 13: OMR &mdash; Optical Music Recognition</h3>
-        <p>
-          Automatic transcription of square notation (neumes on 4-line staves)
-          into machine-readable <a href="https://gregorio-project.github.io/gabc/" style="color: var(--gold-light);">GABC</a>
-          notation using <a href="https://pgarciaq.github.io/chant-omr/" style="color: var(--gold-light);">ChantOMR</a>&mdash;a
-          specialist deep learning model deployed via OpenVINO.
-          Runs in the Score branch on content-area-cropped images for best accuracy.
-        </p>
-      </div>
-
-      <div class="roadmap-card">
         <span class="roadmap-badge future">Future</span>
         <h3>Stage 14: Score Render</h3>
         <p>
           Renders GABC transcriptions into publication-quality Gregorian notation
           using <a href="https://gregorio-project.github.io/" style="color: var(--gold-light);">Gregorio</a>,
           producing typeset score pages appended as an annex to the final PDF.
-        </p>
-      </div>
-
-      <div class="roadmap-card">
-        <span class="roadmap-badge done">Done</span>
-        <h3>Interactive Comparison &amp; Publishing</h3>
-        <p>
-          Built-in tools for comparing pipeline stages side-by-side,
-          publishing web-ready comparison sites, and generating interactive
-          flipbooks: <code>ghh compare</code>,
-          <code>ghh publish</code>, <code>ghh flipbook</code>.
-          <a href="{{ "demo/compare/" | relURL }}" style="color: var(--gold-light);">Try the live demo &rarr;</a>
         </p>
       </div>
 
