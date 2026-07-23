@@ -49,7 +49,7 @@
   <div class="section-inner">
     <h2 class="section-title">What It Does</h2>
     <p class="section-subtitle">
-      A fully automated 13-stage pipeline powered by computer vision and AI
+      A fully automated 16-stage pipeline powered by computer vision and AI
       that transforms smartphone photographs of fragile historical books
       into publication-ready digital documents&mdash;no manual intervention needed.
     </p>
@@ -240,7 +240,7 @@
       <span class="pipeline-arrow">&rarr;</span>
       <div class="stage-chip done"><span class="stage-dot"></span> 4&ensp;Page Detect</div>
       <span class="pipeline-arrow">&rarr;</span>
-      <div class="stage-chip done"><span class="stage-dot"></span> 5&ensp;Perspective</div>
+      <div class="stage-chip done"><span class="stage-dot"></span> 5&ensp;Gentle Crop</div>
     </div>
 
     <div class="pipeline-fork">&darr; fork &darr;</div>
@@ -249,15 +249,17 @@
       <div class="pipeline-branch branch-book">
         <div class="pipeline-branch-label">Book Branch <span class="branch-desc">(full page &rarr; PDF)</span></div>
         <div class="pipeline-stages pipeline-row">
-          <div class="stage-chip pending"><span class="stage-dot"></span> 8&ensp;Deskew (full page)</div>
+          <div class="stage-chip pending"><span class="stage-dot"></span> 8&ensp;Deskew</div>
           <span class="pipeline-arrow">&rarr;</span>
-          <div class="stage-chip not-started"><span class="stage-dot"></span> 9&ensp;Dewarp (full page)</div>
+          <div class="stage-chip pending"><span class="stage-dot"></span> 9&ensp;Perspective</div>
           <span class="pipeline-arrow">&rarr;</span>
-          <div class="stage-chip not-started"><span class="stage-dot"></span> 10&ensp;Enhance (full page)</div>
+          <div class="stage-chip not-started"><span class="stage-dot"></span> 10&ensp;Dewarp</div>
           <span class="pipeline-arrow">&rarr;</span>
-          <div class="stage-chip not-started"><span class="stage-dot"></span> 11&ensp;Normalize (full page)</div>
+          <div class="stage-chip not-started"><span class="stage-dot"></span> 11&ensp;Enhance</div>
           <span class="pipeline-arrow">&rarr;</span>
-          <div class="stage-chip not-started"><span class="stage-dot"></span> 12&ensp;OCR</div>
+          <div class="stage-chip not-started"><span class="stage-dot"></span> 12&ensp;Normalize</div>
+          <span class="pipeline-arrow">&rarr;</span>
+          <div class="stage-chip not-started"><span class="stage-dot"></span> OCR</div>
         </div>
       </div>
       <div class="pipeline-branch branch-score">
@@ -267,13 +269,13 @@
           <span class="pipeline-arrow">&rarr;</span>
           <div class="stage-chip not-started"><span class="stage-dot"></span> 7&ensp;Staff Extract</div>
           <span class="pipeline-arrow">&rarr;</span>
-          <div class="stage-chip pending"><span class="stage-dot"></span> 8&ensp;Deskew (staves)</div>
+          <div class="stage-chip pending"><span class="stage-dot"></span> 8&ensp;Deskew</div>
           <span class="pipeline-arrow">&rarr;</span>
-          <div class="stage-chip not-started"><span class="stage-dot"></span> 9&ensp;Dewarp (staves)</div>
+          <div class="stage-chip not-started"><span class="stage-dot"></span> 10&ensp;Dewarp</div>
           <span class="pipeline-arrow">&rarr;</span>
-          <div class="stage-chip not-started"><span class="stage-dot"></span> 10&ensp;Enhance (staves)</div>
+          <div class="stage-chip not-started"><span class="stage-dot"></span> 11&ensp;Enhance</div>
           <span class="pipeline-arrow">&rarr;</span>
-          <div class="stage-chip not-started"><span class="stage-dot"></span> 11&ensp;Normalize (staves)</div>
+          <div class="stage-chip not-started"><span class="stage-dot"></span> 12&ensp;Normalize</div>
           <span class="pipeline-arrow">&rarr;</span>
           <div class="stage-chip done"><span class="stage-dot"></span> 13&ensp;OMR</div>
           <span class="pipeline-arrow">&rarr;</span>
@@ -308,20 +310,32 @@
 
       <div class="roadmap-card">
         <span class="roadmap-badge next">Next</span>
+        <h3>Pipeline Reordering</h3>
+        <p>
+          Replace Stage 5 (Perspective) with a <strong>Gentle Crop</strong> that crops
+          to the page bounding box without warping, then move Perspective to Stage 9
+          (after Deskew). This eliminates overcropping and lets geometric corrections
+          build on each other instead of fighting.
+        </p>
+      </div>
+
+      <div class="roadmap-card">
+        <span class="roadmap-badge next">Next</span>
         <h3>Forked Pipeline Architecture</h3>
         <p>
-          The pipeline forks after perspective correction into two branches:
-          a <strong>Book branch</strong> (full-page processing for PDF production)
-          and a <strong>Score branch</strong> (content-area extraction for OMR).
-          The Score branch includes a Staff Extract stage that isolates music
-          staff regions, removing illustrations and decorative elements before OMR.
+          The pipeline forks after Gentle Crop into two branches:
+          a <strong>Book branch</strong> (full-page processing for PDF production,
+          including Deskew &rarr; Perspective &rarr; Dewarp)
+          and a <strong>Score branch</strong> (content-area extraction for OMR,
+          skipping Perspective entirely since Content Area already produces
+          a clean crop).
           Each branch applies its own parameters for deskew, dewarp, and enhancement.
         </p>
       </div>
 
       <div class="roadmap-card">
         <span class="roadmap-badge next">Next</span>
-        <h3>Stage 9: Dewarping</h3>
+        <h3>Stage 10: Dewarping</h3>
         <p>
           Correct page curvature from book spines using staff line polynomial
           mesh warping. Optional AI path using DocTr/GeoTr with OpenVINO
@@ -331,7 +345,7 @@
 
       <div class="roadmap-card">
         <span class="roadmap-badge next">Next</span>
-        <h3>Stage 10: Enhancement</h3>
+        <h3>Stage 11: Enhancement</h3>
         <p>
           Color cast correction, illumination normalization, shadow and stain
           removal, show-through suppression, CLAHE contrast, denoising,
@@ -341,7 +355,7 @@
 
       <div class="roadmap-card">
         <span class="roadmap-badge next">Next</span>
-        <h3>Stage 11: Normalization</h3>
+        <h3>Stage 12: Normalization</h3>
         <p>
           Cross-page color and DPI consistency. Ensures all pages in a
           book share a uniform appearance, matching white point and
@@ -351,7 +365,7 @@
 
       <div class="roadmap-card">
         <span class="roadmap-badge next">Next</span>
-        <h3>Stage 12: OCR</h3>
+        <h3>OCR</h3>
         <p>
           Optical character recognition for Latin text using Tesseract
           or Kraken. Produces an hOCR layer embedded in the final PDF,

@@ -34,11 +34,11 @@ producing a clean PDF from raw photographs.
 | `--profile` | choice | `full` | Processing profile: `full`, `geometry`, `clean`, `quick` |
 | `--preview` | integer | 0 | Process only N images (0 = all) |
 | `--skip-content-area` | flag | | Skip content area detection (Stage 6) |
-| `--skip-dewarp` | flag | | Skip dewarping (Stage 8) |
 | `--skip-deskew` | flag | | Skip deskewing (Stage 8) |
-| `--skip-enhance` | flag | | Skip image enhancement (Stage 9) |
-| `--skip-normalize` | flag | | Skip cross-page normalization (Stage 10) |
-| `--skip-ocr` | flag | | Skip OCR (Stage 11) |
+| `--skip-dewarp` | flag | | Skip dewarping (Stage 10) |
+| `--skip-enhance` | flag | | Skip image enhancement (Stage 11) |
+| `--skip-normalize` | flag | | Skip cross-page normalization (Stage 12) |
+| `--skip-ocr` | flag | | Skip OCR |
 | `--skip-omr` | flag | | Skip OMR (Stage 13) |
 | `--model-dir` | path | from config | Path to chant-omr OpenVINO model directory |
 | `--ai-dewarp` | flag | | Use AI-based dewarping |
@@ -58,7 +58,7 @@ ghh run ~/photos/LPA-1
 ghh run ~/photos/LPA-1 --preview 10 --profile geometry
 
 # Run specific stages
-ghh run ~/photos/LPA-1 --stages 0-5,12
+ghh run ~/photos/LPA-1 --stages 0-5,8-9
 
 # Use a custom config file
 ghh run ~/photos/LPA-1 --config ~/photos/LPA-1/book.toml
@@ -273,8 +273,8 @@ ghh cleanup OUTPUT_DIR [OPTIONS]
 # Remove all intermediates, keep only the final PDF
 ghh cleanup ~/photos/LPA-1_output
 
-# Keep stages 0 (original preprocessing) and 7 (deskewed)
-ghh cleanup ~/photos/LPA-1_output --keep 0,7
+# Keep stages 0 (original preprocessing) and 8 (deskewed)
+ghh cleanup ~/photos/LPA-1_output --keep 0,8
 ```
 
 ## ghh stages

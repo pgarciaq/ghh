@@ -117,10 +117,13 @@ By default, ghh creates an output directory next to your input:
   01_stitched/             # after grouping and stitching
   02_oriented/             # after rotation correction
   03_lens_corrected/       # after lens distortion fix
-  04_page_detected/        # after page detection and crop
-  05_perspective/          # after perspective correction
-  06_content_area/         # after content area extraction
+  04_page_detected/        # after page detection (quad in sidecar)
+  05_gentle_crop/          # after bounding-box crop (no warp)
+  06_content/              # after content area extraction (score branch)
+  07_staff_extract/        # after staff isolation (score branch)
   08_deskewed/             # after straightening
+  09_perspective/          # after perspective correction (book branch)
+  10_dewarped/             # after page curl correction
   13_omr/                  # OMR transcription (if enabled)
   15_pdf/                  # final PDF
   photos.pdf               # the output PDF

@@ -5,9 +5,12 @@ description: "What each processing stage does and when to skip it"
 ---
 
 Guido's Helping Hand processes images through a sequence of stages,
-numbered 0 through 15. Each stage reads from the previous stage's output
-and writes to its own checkpoint directory, making it easy to inspect
-intermediate results and resume interrupted runs.
+numbered 0 through 15. The pipeline forks after common preparation
+(stages 0--5) into a **Book branch** (full-page processing for PDF
+production) and a **Score branch** (content-area extraction for OMR).
+Each stage reads from the previous stage's output and writes to its own
+checkpoint directory, making it easy to inspect intermediate results and
+resume interrupted runs.
 
 ## How checkpointing works
 
@@ -121,21 +124,30 @@ This stage cannot be skipped.
 
 **Key configuration:** `[page_detect]` section.
 
-### Stage 5: Perspective
+### Stage 5: Gentle Crop
 
-**Checkpoint:** `05_perspective/`
+**Checkpoint:** `05_gentle_crop/`
 
-Corrects perspective distortion (keystone effect) from the camera angle:
+Crops the image to the page region detected by Stage 4 without applying
+any perspective warp:
 
-- Warps the detected quadrilateral from Stage 4 into a rectangle
-- Sizes the output using the longest edges of the quad
-- Fills any exposed corners with the estimated background color
+- Computes the axis-aligned bounding box of the Stage 4 quad
+- Expands by a configurable margin (default 5%) to preserve all page content
+- Crops the image to this expanded bounding box (no interpolation)
+- Transforms `quad_corners` to the new coordinate system so downstream
+  stages (Deskew, Perspective) can still use them
+
+This replaces the former Perspective stage at position 5. The actual
+perspective correction now runs at Stage 9, after Deskew has straightened
+the page, producing a much cleaner result with less overcropping.
 
 This stage cannot be skipped.
 
-### Stage 6: Content Area
+**Key configuration:** `[gentle_crop]` section: `margin_frac`.
 
-**Checkpoint:** `06_content_area/`
+### Stage 6: Content Area (Score branch only)
+
+**Checkpoint:** `06_content/`
 
 Extracts the actual content region within the page, removing outer
 margins, border frames, and decorative edges:
@@ -174,8 +186,15 @@ Straightens slightly tilted pages:
 
 - Measures skew angle using staff line angles (music pages) or
   horizontal projection profile sharpness (text pages)
+- Uses `quad_corners` from the sidecar as an ROI mask to avoid
+  detecting angles in background regions outside the page
 - Rotates the image to correct the skew
+- Transforms `quad_corners` by the same rotation matrix and adjusts
+  for any trim offset, preserving them for Stage 9 (Perspective)
 - Trims background-filled borders after rotation
+
+Runs in both branches: on the full page (Book branch) and on the
+content area or staff extract output (Score branch).
 
 **Skip when:** Pages are already straight. Use `--skip-deskew`.
 
@@ -185,9 +204,36 @@ over-correct in some cases.
 **Key configuration:** `[deskew]` section: `max_angle`,
 `skip_threshold`.
 
-### Stage 9: Dewarp
+### Stage 9: Perspective (Book branch only)
 
-**Checkpoint:** `09_dewarped/`
+**Checkpoint:** `09_perspective/`
+
+Corrects perspective distortion (keystone effect) from the camera angle.
+Now runs **after** Deskew, so it operates on an already-straightened
+image:
+
+- Reads the transformed `quad_corners` that have passed through
+  Gentle Crop (Stage 5) and Deskew (Stage 8)
+- Warps the quad into a rectangle using `cv2.warpPerspective`
+- Sizes the output using the longest edges of the quad
+- Fills any exposed corners with the estimated page background color
+- Safety checks: skips if the quad is near-rectangular (common after
+  Deskew has already straightened the page), if crop ratio is excessive,
+  or if the homography would introduce tilt
+
+Because Deskew has already removed skew, the perspective correction at
+this stage is typically a small residual adjustment (trapezoid
+correction), producing much cleaner results than the former pipeline
+where Perspective ran before Deskew.
+
+Skipped in the Score branch (Content Area already produces a clean crop).
+
+**Key configuration:** `[perspective]` section: `max_skew_deg`,
+`max_crop_frac`, `near_rect_threshold_deg`, `max_introduced_tilt_deg`.
+
+### Stage 10: Dewarp
+
+**Checkpoint:** `10_dewarped/`
 
 Corrects page curl and waviness from the book's binding:
 
@@ -202,9 +248,9 @@ Corrects page curl and waviness from the book's binding:
 
 **Key configuration:** `--ai-dewarp` flag, `--skip-dewarp` flag.
 
-### Stage 10: Enhance
+### Stage 11: Enhance
 
-**Checkpoint:** `10_enhanced/`
+**Checkpoint:** `11_enhanced/`
 
 Applies a chain of image enhancement operations to improve readability:
 
@@ -230,9 +276,9 @@ from `[condition]` control how aggressively each correction operates.
 
 **Key configuration:** `[enhance]` section, `[condition]` section.
 
-### Stage 11: Normalize
+### Stage 12: Normalize
 
-**Checkpoint:** `11_normalized/`
+**Checkpoint:** `12_normalized/`
 
 Ensures visual consistency across all pages in the book:
 
@@ -247,7 +293,7 @@ one at a time, because it needs to compute global statistics first.
 
 **Status:** Not yet implemented.
 
-### Stage 12: OCR (Book branch only)
+### OCR (Book branch only)
 
 **Checkpoint:** (embedded in PDF)
 

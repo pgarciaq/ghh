@@ -220,7 +220,18 @@ Controls straightening of tilted pages.
 | `angle_step` | float | 0.1 | Angle search resolution (degrees) |
 | `skip_threshold` | float | 0.1 | Skip if detected angle is below this |
 
-### [enhance] -- Enhancement sub-steps (Stage 9)
+### [perspective] -- Perspective correction (Stage 9, Book branch)
+
+Controls how ghh corrects perspective distortion after deskewing.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `max_skew_deg` | float | 45.0 | Skip if quad skew exceeds this |
+| `max_crop_frac` | float | 0.30 | Skip if crop ratio exceeds this |
+| `near_rect_threshold_deg` | float | 3.0 | Skip if quad is nearly rectangular |
+| `max_introduced_tilt_deg` | float | 2.0 | Skip if homography introduces tilt |
+
+### [enhance] -- Enhancement sub-steps (Stage 11)
 
 Toggle individual enhancement operations. All default to `true`.
 
@@ -264,7 +275,7 @@ Controls the HTML flipbook viewer.
 | `jpeg_quality` | integer | 85 | JPEG quality for flipbook pages |
 | `title` | string | directory name | Title shown in the viewer |
 
-### [ocr] -- Optical Character Recognition (Stage 11)
+### [ocr] -- Optical Character Recognition (Book branch)
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
