@@ -70,11 +70,11 @@ class TestDiscoverBook:
     def test_discovers_stages_and_images(self, tmp_path: Path):
         out, _ = _make_book(
             tmp_path,
-            stages=["00_preprocessed", "05_perspective"],
+            stages=["00_preprocessed", "05_gentle_crop"],
             stems=["IMG_0001", "IMG_0002"],
         )
         book = discover_book(out)
-        assert book["stages"] == ["0: Preprocess", "5: Perspective"]
+        assert book["stages"] == ["0: Preprocess", "5: Gentle Crop"]
         assert len(book["images"]) == 2
         assert book["images"][0]["stem"] == "IMG_0001"
         assert book["images"][1]["stem"] == "IMG_0002"
@@ -110,10 +110,10 @@ class TestDiscoverBook:
         out = tmp_path / "out"
         out.mkdir()
         (out / "00_preprocessed").mkdir()
-        (out / "05_perspective").mkdir()
+        (out / "05_gentle_crop").mkdir()
         _make_image(out / "00_preprocessed" / "A.png")
         _make_image(out / "00_preprocessed" / "B.png")
-        _make_image(out / "05_perspective" / "A.png")
+        _make_image(out / "05_gentle_crop" / "A.png")
 
         book = discover_book(out)
         assert len(book["images"]) == 2
@@ -379,7 +379,7 @@ class TestPublishBook:
     def test_creates_index_html_and_images(self, tmp_path: Path):
         out, inp = _make_book(
             tmp_path,
-            stages=["00_preprocessed", "05_perspective"],
+            stages=["00_preprocessed", "05_gentle_crop"],
             stems=["A", "B"],
             input_dir=True,
         )
@@ -390,7 +390,7 @@ class TestPublishBook:
 
         assert (pub / "images" / "original" / "A.jpg").exists()
         assert (pub / "images" / "00_preprocessed" / "B.jpg").exists()
-        assert (pub / "images" / "05_perspective" / "A.jpg").exists()
+        assert (pub / "images" / "05_gentle_crop" / "A.jpg").exists()
 
     def test_uses_publish_theme(self, tmp_path: Path):
         out, _ = _make_book(
@@ -418,7 +418,7 @@ class TestPublishBook:
     def test_stage_filter(self, tmp_path: Path):
         out, _ = _make_book(
             tmp_path,
-            stages=["00_preprocessed", "05_perspective", "08_deskewed"],
+            stages=["00_preprocessed", "05_gentle_crop", "08_deskewed"],
             stems=["A"],
         )
         pub = tmp_path / "pub"
@@ -428,7 +428,7 @@ class TestPublishBook:
         book = json.loads(match.group(1))
         assert "0: Preprocess" in book["stages"]
         assert "8: Deskew" in book["stages"]
-        assert "5: Perspective" not in book["stages"]
+        assert "5: Gentle Crop" not in book["stages"]
 
     def test_auto_infers_input_dir(self, tmp_path: Path):
         inp = tmp_path / "book"
@@ -516,7 +516,7 @@ class TestPublishCLI:
 
         out, _ = _make_book(
             tmp_path,
-            stages=["00_preprocessed", "05_perspective"],
+            stages=["00_preprocessed", "05_gentle_crop"],
             stems=["A"],
         )
         pub = tmp_path / "pub"
@@ -526,7 +526,7 @@ class TestPublishCLI:
         ])
         assert result.exit_code == 0
         assert (pub / "images" / "00_preprocessed" / "A.jpg").exists()
-        assert not (pub / "images" / "05_perspective").exists()
+        assert not (pub / "images" / "05_gentle_crop").exists()
 
     def test_publish_with_max_dim(self, tmp_path: Path):
         from click.testing import CliRunner

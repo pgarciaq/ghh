@@ -29,7 +29,7 @@ _PROFILE_SKIPS: dict[str, set[str]] = {
     },
 }
 
-_MANDATORY_STAGES = {"orientation", "page_detect", "perspective", "pdf_assembly"}
+_MANDATORY_STAGES = {"orientation", "page_detect", "gentle_crop", "perspective", "pdf_assembly"}
 
 
 @dataclass
@@ -104,12 +104,15 @@ class Config:
     page_detect_border_refinement: bool = True
     page_detect_border_confidence_threshold: float = 0.5
 
+    # Gentle crop (Stage 5)
+    gentle_crop_margin_frac: float = 0.03
+
     # Content area detection (Stage 6)
     content_detect_inset_fallback: float = 0.05
     content_margin_padding: float = 0.0
     content_feather_sigma: int = 20
 
-    # Perspective validation (Stage 5)
+    # Perspective validation (Stage 9)
     perspective_max_skew_deg: float = 5.0
     perspective_max_crop_frac: float = 0.30
     perspective_near_rect_threshold_deg: float = 2.0
@@ -325,6 +328,10 @@ class Config:
             kwargs, page_detect, "border_confidence_threshold",
             "page_detect_border_confidence_threshold",
         )
+
+        # [gentle_crop] section
+        gentle_crop = toml_data.get("gentle_crop", {})
+        _map_if_present(kwargs, gentle_crop, "margin_frac", "gentle_crop_margin_frac")
 
         # [content_area] section
         content = toml_data.get("content_area", {})

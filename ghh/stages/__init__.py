@@ -10,6 +10,7 @@ from __future__ import annotations
 from ghh.pipeline import BaseStage
 from ghh.stages.content_area import ContentAreaStage
 from ghh.stages.deskew import DeskewStage
+from ghh.stages.gentle_crop import GentleCropStage
 from ghh.stages.lens_correct import LensCorrectStage
 from ghh.stages.omr import OmrStage
 from ghh.stages.orientation import OrientationStage
@@ -27,10 +28,11 @@ STAGE_CLASSES: list[type[BaseStage]] = [
     OrientationStage,   # 2
     LensCorrectStage,   # 3
     PageDetectStage,    # 4
-    PerspectiveStage,   # 5
+    GentleCropStage,    # 5
     ContentAreaStage,   # 6
     StaffExtractStage,  # 7
     DeskewStage,        # 8
+    PerspectiveStage,   # 9
     OmrStage,           # 13
     ScoreRenderStage,   # 14
     PDFAssemblyStage,   # 15
@@ -43,7 +45,7 @@ ALL_STAGE_NUMBERS: list[int] = sorted(STAGE_BY_NUMBER)
 
 # Stage groupings for the forked pipeline architecture
 COMMON_STAGE_NUMBERS = [0, 1, 2, 3, 4, 5]
-BOOK_STAGE_NUMBERS = [8]  # only deskew implemented so far; will grow: 8, 9, 10, 11, 12
+BOOK_STAGE_NUMBERS = [8, 9]  # deskew, perspective; will grow: 10, 11, 12
 SCORE_STAGE_NUMBERS = [6, 7, 8, 13, 14]  # content area, staff extract, deskew, omr, score render
 FINAL_STAGE_NUMBERS = [15]  # pdf assembly
 

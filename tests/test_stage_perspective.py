@@ -1,9 +1,9 @@
-"""Tests for Stage 5 (PerspectiveStage): perspective correction.
+"""Tests for Stage 9 (PerspectiveStage): perspective correction.
 
 Covers the BaseStage contract, quad-to-rectangle warping, background
-fill, pass-through on missing/degenerate quads, sidecar propagation
-from Stage 4, near-rectangular passthrough, tilt rejection, and
-integration tests.
+fill, pass-through on missing/degenerate quads, sidecar propagation,
+near-rectangular passthrough, tilt rejection, symlink_unchanged,
+and integration tests.
 """
 
 from __future__ import annotations
@@ -114,12 +114,12 @@ class TestPerspectiveStageContract:
     def test_has_correct_number(self):
         from ghh.stages.perspective import PerspectiveStage
 
-        assert PerspectiveStage().number == 5
+        assert PerspectiveStage().number == 9
 
     def test_has_correct_checkpoint_name(self):
         from ghh.stages.perspective import PerspectiveStage
 
-        assert PerspectiveStage().checkpoint_name == "05_perspective"
+        assert PerspectiveStage().checkpoint_name == "09_perspective"
 
     def test_is_base_stage_subclass(self):
         from ghh.stages.perspective import PerspectiveStage
@@ -140,8 +140,23 @@ class TestPerspectiveStageContract:
     def test_registered_in_stage_registry(self):
         from ghh.stages import STAGE_BY_NUMBER
 
-        assert 5 in STAGE_BY_NUMBER
-        assert STAGE_BY_NUMBER[5].name == "perspective"
+        assert 9 in STAGE_BY_NUMBER
+        assert STAGE_BY_NUMBER[9].name == "perspective"
+
+    def test_symlink_unchanged(self):
+        from ghh.stages.perspective import PerspectiveStage
+
+        assert PerspectiveStage().symlink_unchanged is True
+
+    def test_is_unchanged_passthrough(self):
+        from ghh.stages.perspective import PerspectiveStage
+
+        stage = PerspectiveStage()
+        assert stage.is_unchanged({"method": "passthrough"}) is True
+        assert stage.is_unchanged({"method": "passthrough_near_rectangular"}) is True
+        assert stage.is_unchanged({"method": "passthrough_unreliable"}) is True
+        assert stage.is_unchanged({"method": "warpPerspective"}) is False
+        assert stage.is_unchanged({}) is False
 
 
 # ---------------------------------------------------------------------------
@@ -512,7 +527,7 @@ class TestPerspectiveMetadata:
         assert "background_color" in meta
 
     def test_forwards_page_type_from_stage4(self):
-        """Stage 5 should forward page_type from Stage 4 metadata."""
+        """Stage 9 should forward page_type from Stage 4 metadata."""
         from ghh.stages.perspective import PerspectiveStage
 
         stage = PerspectiveStage()
@@ -527,7 +542,7 @@ class TestPerspectiveMetadata:
         assert meta["page_type"] == "music"
 
     def test_forwards_page_type_on_passthrough(self):
-        """page_type should also be forwarded when Stage 5 passes through."""
+        """page_type should also be forwarded when Stage 9 passes through."""
         from ghh.stages.perspective import PerspectiveStage
 
         stage = PerspectiveStage()
@@ -562,7 +577,7 @@ class TestSidecarPropagation:
 
     @pytest.mark.slow
     def test_reads_quad_from_stage4_sidecar(self, tmp_path):
-        """Stage 5 run() should read quad_corners from Stage 4's JSON sidecar."""
+        """Stage 9 run() should read quad_corners from the incoming JSON sidecar."""
         from ghh.stages.perspective import PerspectiveStage
 
         page = make_music_page(width=600, height=400)
@@ -582,7 +597,7 @@ class TestSidecarPropagation:
         result = stage.run(input_dir, tmp_path, cfg, state)
 
         assert result.processed == 1
-        out_img = tmp_path / "05_perspective" / "IMG_0001.png"
+        out_img = tmp_path / "09_perspective" / "IMG_0001.png"
         assert out_img.exists()
         corrected = cv2.imread(str(out_img))
         assert corrected.shape[0] == 400
@@ -590,7 +605,7 @@ class TestSidecarPropagation:
 
     @pytest.mark.slow
     def test_passthrough_without_sidecar(self, tmp_path):
-        """Without a sidecar, Stage 5 should pass through unchanged."""
+        """Without a sidecar, Stage 9 should pass through unchanged."""
         from ghh.stages.perspective import PerspectiveStage
 
         img = make_music_page(width=600, height=400)
@@ -605,7 +620,7 @@ class TestSidecarPropagation:
         result = stage.run(input_dir, tmp_path, cfg, state)
 
         assert result.processed == 1
-        out_img = tmp_path / "05_perspective" / "IMG_0001.png"
+        out_img = tmp_path / "09_perspective" / "IMG_0001.png"
         corrected = cv2.imread(str(out_img))
         assert corrected.shape == img.shape
 
@@ -793,7 +808,7 @@ class TestPerspectiveStageRun:
 
         stage.run(input_dir, tmp_path, cfg, state)
 
-        assert (tmp_path / "05_perspective").exists()
+        assert (tmp_path / "09_perspective").exists()
 
     def test_processes_multiple_images(self, tmp_path):
         from ghh.stages.perspective import PerspectiveStage
@@ -816,7 +831,7 @@ class TestPerspectiveStageRun:
 
         assert result.processed == 3
         for i in range(3):
-            assert (tmp_path / "05_perspective" / f"IMG_{i:04d}.png").exists()
+            assert (tmp_path / "09_perspective" / f"IMG_{i:04d}.png").exists()
 
     def test_writes_metadata_sidecar(self, tmp_path):
         from ghh.stages.perspective import PerspectiveStage
@@ -835,7 +850,7 @@ class TestPerspectiveStageRun:
 
         stage.run(input_dir, tmp_path, cfg, state)
 
-        sidecar = tmp_path / "05_perspective" / "IMG_0001.json"
+        sidecar = tmp_path / "09_perspective" / "IMG_0001.json"
         assert sidecar.exists()
         meta = json.loads(sidecar.read_text())
         assert meta["stage"] == "perspective"
@@ -902,7 +917,7 @@ class TestPerspectiveStageRun:
         result = stage.run(input_dir, tmp_path, cfg, state)
 
         assert result.processed == 1
-        out_img = tmp_path / "05_perspective" / "IMG_0001.png"
+        out_img = tmp_path / "09_perspective" / "IMG_0001.png"
         corrected = cv2.imread(str(out_img))
         aspect = corrected.shape[1] / corrected.shape[0]
         assert 1.2 < aspect < 1.8, f"Expected ~1.5 aspect, got {aspect}"

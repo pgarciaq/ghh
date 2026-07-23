@@ -450,7 +450,7 @@ class TestPDFAssemblyInputFromAnyStage:
         assert (output_dir / "book.pdf").exists()
 
     def test_works_with_stage_05_dir(self, tmp_path):
-        checkpoint_dir = tmp_path / "05_perspective"
+        checkpoint_dir = tmp_path / "05_gentle_crop"
         _save_test_images(checkpoint_dir, count=4)
         output_dir = tmp_path / "output"
         output_dir.mkdir()

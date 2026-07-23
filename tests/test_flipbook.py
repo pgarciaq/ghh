@@ -40,7 +40,7 @@ def _make_pipeline_output(
 ) -> Path:
     """Create a minimal pipeline output layout and return output_dir."""
     if stages is None:
-        stages = ["05_perspective"]
+        stages = ["05_gentle_crop"]
     if stems is None:
         stems = ["IMG_0001", "IMG_0002", "IMG_0003"]
 
@@ -78,11 +78,11 @@ class TestVendorJsPath:
 class TestFindSourceImages:
     def test_finds_images_from_highest_checkpoint(self, tmp_path: Path):
         out = _make_pipeline_output(
-            tmp_path, stages=["00_preprocessed", "05_perspective"]
+            tmp_path, stages=["00_preprocessed", "05_gentle_crop"]
         )
         images = _find_source_images(out)
         assert len(images) == 3
-        assert all("05_perspective" in str(p) for p in images)
+        assert all("05_gentle_crop" in str(p) for p in images)
 
     def test_falls_back_to_earlier_checkpoint(self, tmp_path: Path):
         out = _make_pipeline_output(tmp_path, stages=["00_preprocessed"])
@@ -184,7 +184,7 @@ class TestGenerateFlipbook:
     def test_pages_downscaled(self, tmp_path: Path):
         out = _make_pipeline_output(tmp_path)
         # Override images with larger ones
-        stage_dir = out / "05_perspective"
+        stage_dir = out / "05_gentle_crop"
         for f in stage_dir.glob("*.png"):
             _make_image(f, w=3200, h=2400)
 
@@ -334,7 +334,7 @@ class TestFlipbookCLI:
 
     def test_max_width_option(self, tmp_path: Path):
         out = _make_pipeline_output(tmp_path)
-        stage_dir = out / "05_perspective"
+        stage_dir = out / "05_gentle_crop"
         for f in stage_dir.glob("*.png"):
             _make_image(f, w=3200, h=2400)
 

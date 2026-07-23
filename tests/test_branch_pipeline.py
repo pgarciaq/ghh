@@ -173,6 +173,7 @@ class TestStageGroupings:
     def test_book_stages(self):
         from ghh.stages import BOOK_STAGE_NUMBERS
         assert 8 in BOOK_STAGE_NUMBERS
+        assert 9 in BOOK_STAGE_NUMBERS
 
     def test_score_stages(self):
         from ghh.stages import SCORE_STAGE_NUMBERS
@@ -371,15 +372,15 @@ class TestBranchCheckpointResolution:
         branch_dir.mkdir(parents=True)
 
         # Only common checkpoint exists
-        perspective_dir = output_dir / "05_perspective"
-        _save_images(perspective_dir, count=1)
+        gentle_crop_dir = output_dir / "05_gentle_crop"
+        _save_images(gentle_crop_dir, count=1)
 
         stages = get_stages([5, 6])
         result = _find_previous_checkpoint(
             6, stages, branch_dir, fallback_dir=output_dir,
         )
         assert result is not None
-        assert "05_perspective" in str(result)
+        assert "05_gentle_crop" in str(result)
 
     def test_returns_none_when_no_checkpoint(self, tmp_path):
         from ghh.cli import _find_previous_checkpoint
@@ -528,7 +529,7 @@ class TestCompareViewerBranchAwareness:
 
         output_dir = tmp_path / "output"
         # Common stage
-        _save_images(output_dir / "05_perspective", count=2)
+        _save_images(output_dir / "05_gentle_crop", count=2)
         # Book branch stage
         _save_images(output_dir / "book" / "08_deskewed", count=2)
         # Score branch stage
@@ -543,7 +544,7 @@ class TestCompareViewerBranchAwareness:
         from ghh.compare import discover_book
 
         output_dir = tmp_path / "output"
-        _save_images(output_dir / "05_perspective", count=1)
+        _save_images(output_dir / "05_gentle_crop", count=1)
         _save_images(output_dir / "book" / "08_deskewed", count=1)
 
         book = discover_book(output_dir)

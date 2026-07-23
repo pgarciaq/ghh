@@ -1,7 +1,7 @@
-"""Stage 5: Perspective correction.
+"""Stage 9: Perspective correction.
 
-Uses the quad corners detected by Stage 4 to map the page to a
-rectangle via ``cv2.warpPerspective``.
+Uses the quad corners (propagated from Stage 4 through Gentle Crop
+and Deskew) to map the page to a rectangle via ``cv2.warpPerspective``.
 
 Target rectangle dimensions use the *maximum* of opposite edge pairs
 so that no content is lost from the longer edge::
@@ -20,8 +20,8 @@ Three safety checks prevent the warp from making things worse:
 3. **Tilt introduction**: if the homography would introduce more tilt
    than the original quad had → passthrough
 
-If no quad corners are found in the incoming metadata (e.g. Stage 5
-run in isolation without Stage 4), the image passes through unchanged.
+If no quad corners are found in the incoming metadata, the image
+passes through unchanged (symlinked when possible).
 """
 
 from __future__ import annotations
@@ -48,9 +48,13 @@ _BOUNDARY_MARGIN = 5
 
 class PerspectiveStage(BaseStage):
     name = "perspective"
-    number = 5
-    checkpoint_name = "05_perspective"
+    number = 9
+    checkpoint_name = "09_perspective"
     error_class = "skippable"
+    symlink_unchanged = True
+
+    def is_unchanged(self, metadata: dict) -> bool:
+        return "passthrough" in metadata.get("method", "")
 
     def process_image(
         self,

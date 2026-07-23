@@ -340,7 +340,7 @@ def _find_previous_checkpoint(
     Walks backward from *current_number* looking for an existing checkpoint
     directory. When *fallback_dir* is set (branch execution), also checks
     the common output root for cross-phase continuity (e.g. score branch
-    stage 6 reads from common ``05_perspective/``).
+    stage 6 reads from common ``05_gentle_crop/``).
     """
     from ghh.stages import STAGE_BY_NUMBER
 
