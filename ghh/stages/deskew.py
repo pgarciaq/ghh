@@ -68,18 +68,23 @@ class DeskewStage(BaseStage):
         if abs(angle) < cfg.deskew_skip_threshold:
             logger.debug("Skew angle %.3f below threshold, skipping rotation", angle)
             result = img
+            rot_matrix = None
             method = "skipped"
         else:
             bg_color = estimate_background(img)
-            result = _rotate(img, -angle, bg_color)
+            result, rot_matrix = _rotate(img, -angle, bg_color)
 
-        result, _trim_x, _trim_y = trim_to_content(result)
+        result, trim_x, trim_y = trim_to_content(result)
 
-        meta = {
+        out_quad = _transform_quad(quad, rot_matrix, trim_x, trim_y)
+
+        meta: dict = {
             "stage": "deskew",
             "method": method,
             "skew_angle": round(angle, 4),
         }
+        if out_quad is not None:
+            meta["quad_corners"] = out_quad.tolist()
         if "page_type" in metadata:
             meta["page_type"] = metadata["page_type"]
 
@@ -100,6 +105,32 @@ def _load_quad(metadata: dict) -> np.ndarray | None:
     return arr
 
 
+def _transform_quad(
+    quad: np.ndarray | None,
+    rot_matrix: np.ndarray | None,
+    trim_x: int,
+    trim_y: int,
+) -> np.ndarray | None:
+    """Apply the rotation matrix and trim offsets to quad_corners.
+
+    Returns the transformed quad in float32, or None if no quad was provided.
+    """
+    if quad is None:
+        return None
+
+    pts = quad.astype(np.float64)
+
+    if rot_matrix is not None:
+        ones = np.ones((pts.shape[0], 1), dtype=np.float64)
+        pts_h = np.hstack([pts, ones])  # (4, 3)
+        pts = (rot_matrix @ pts_h.T).T  # (4, 2)
+
+    pts[:, 0] -= trim_x
+    pts[:, 1] -= trim_y
+
+    return pts.astype(np.float32)
+
+
 def _downscale_for_detection(img: np.ndarray) -> tuple[np.ndarray, float]:
     """Downscale image so its longest side is at most _DETECT_MAX_DIM.
 
@@ -118,17 +149,22 @@ def _rotate(
     img: np.ndarray,
     angle_deg: float,
     bg_color: tuple[int, ...],
-) -> np.ndarray:
-    """Rotate image by *angle_deg* around its center, filling with bg_color."""
+) -> tuple[np.ndarray, np.ndarray]:
+    """Rotate image by *angle_deg* around its center, filling with bg_color.
+
+    Returns ``(rotated_image, M)`` where *M* is the 2x3 affine matrix
+    so that callers can transform coordinates by the same rotation.
+    """
     h, w = img.shape[:2]
     cx, cy = w / 2, h / 2
     M = cv2.getRotationMatrix2D((cx, cy), angle_deg, 1.0)
-    return cv2.warpAffine(
+    rotated = cv2.warpAffine(
         img, M, (w, h),
         flags=cv2.INTER_LINEAR,
         borderMode=cv2.BORDER_CONSTANT,
         borderValue=bg_color,
     )
+    return rotated, M
 
 
 def _projection_profile_angle(

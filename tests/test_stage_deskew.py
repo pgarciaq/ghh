@@ -360,6 +360,107 @@ class TestDeskewROIMask:
 
 
 # ---------------------------------------------------------------------------
+# TestDeskewQuadPropagation
+# ---------------------------------------------------------------------------
+
+class TestDeskewQuadPropagation:
+    """Test that quad_corners are transformed through rotation + trim (#77)."""
+
+    def test_quad_present_in_output_metadata(self, tmp_path):
+        """When quad_corners is in the input, it should appear in output."""
+        img = _make_skewed_image(1.5)
+        h, w = img.shape[:2]
+        quad = [[50, 50], [w - 50, 50], [w - 50, h - 50], [50, h - 50]]
+        cfg = _cfg(tmp_path)
+        _, meta = DeskewStage().process_image(img, {"quad_corners": quad}, cfg)
+        assert "quad_corners" in meta
+        corners = np.array(meta["quad_corners"])
+        assert corners.shape == (4, 2)
+
+    def test_no_quad_means_no_quad_in_output(self, tmp_path):
+        """Without input quad, output should not contain quad_corners."""
+        img = _make_skewed_image(1.5)
+        cfg = _cfg(tmp_path)
+        _, meta = DeskewStage().process_image(img, {}, cfg)
+        assert "quad_corners" not in meta
+
+    def test_quad_stays_near_output_bounds(self, tmp_path):
+        """Transformed quad should be roughly within the output image."""
+        img = _make_skewed_image(2.0)
+        h, w = img.shape[:2]
+        quad = [[80, 80], [w - 80, 80], [w - 80, h - 80], [80, h - 80]]
+        cfg = _cfg(tmp_path)
+        result, meta = DeskewStage().process_image(
+            img, {"quad_corners": quad}, cfg,
+        )
+        corners = np.array(meta["quad_corners"])
+        rh, rw = result.shape[:2]
+        # After rotation + trim, corners that were near the edge may
+        # swing slightly outside the trimmed canvas; allow some slack.
+        slack = max(rw, rh) * 0.1
+        assert np.all(corners[:, 0] >= -slack), "x coords too far negative"
+        assert np.all(corners[:, 1] >= -slack), "y coords too far negative"
+        assert np.all(corners[:, 0] <= rw + slack), "x coords too far right"
+        assert np.all(corners[:, 1] <= rh + slack), "y coords too far down"
+
+    def test_skipped_rotation_still_adjusts_for_trim(self, tmp_path):
+        """Even when rotation is skipped, trim offsets should be applied."""
+        img = _make_skewed_image(0.0)
+        h, w = img.shape[:2]
+        quad = [[50, 50], [w - 50, 50], [w - 50, h - 50], [50, h - 50]]
+        cfg = _cfg(tmp_path, deskew_skip_threshold=2.0)
+        _, meta = DeskewStage().process_image(
+            img, {"quad_corners": quad}, cfg,
+        )
+        assert meta["method"] == "skipped"
+        assert "quad_corners" in meta
+
+    def test_quad_relative_geometry_preserved(self, tmp_path):
+        """The quad should remain roughly rectangular after a small rotation."""
+        img = _make_skewed_image(1.0)
+        h, w = img.shape[:2]
+        quad = [[80, 80], [w - 80, 80], [w - 80, h - 80], [80, h - 80]]
+        cfg = _cfg(tmp_path)
+        _, meta = DeskewStage().process_image(
+            img, {"quad_corners": quad}, cfg,
+        )
+        corners = np.array(meta["quad_corners"], dtype=np.float64)
+        tl, tr, br, bl = corners
+        top_w = np.linalg.norm(tr - tl)
+        bot_w = np.linalg.norm(br - bl)
+        left_h = np.linalg.norm(bl - tl)
+        right_h = np.linalg.norm(br - tr)
+        assert abs(top_w - bot_w) < 5, "Top and bottom widths should be similar"
+        assert abs(left_h - right_h) < 5, "Left and right heights should be similar"
+
+    def test_sidecar_contains_quad_after_run(self, tmp_path):
+        """Full run() should persist quad_corners in the JSON sidecar."""
+        img = _make_skewed_image(1.5)
+        h, w = img.shape[:2]
+        quad = [[40, 40], [w - 40, 40], [w - 40, h - 40], [40, h - 40]]
+
+        input_dir = tmp_path / "05_gentle_crop"
+        input_dir.mkdir()
+        cv2.imwrite(str(input_dir / "IMG_0001.png"), img)
+        sidecar_in = input_dir / "IMG_0001.json"
+        sidecar_in.write_text(json.dumps({"quad_corners": quad}))
+
+        output_dir = tmp_path / "output"
+        output_dir.mkdir()
+        cfg = _cfg(tmp_path)
+        state = PipelineState(output_dir)
+
+        DeskewStage().run(input_dir, output_dir, cfg, state)
+
+        sidecar_out = output_dir / "08_deskewed" / "IMG_0001.json"
+        assert sidecar_out.exists()
+        meta = json.loads(sidecar_out.read_text())
+        assert "quad_corners" in meta
+        corners = np.array(meta["quad_corners"])
+        assert corners.shape == (4, 2)
+
+
+# ---------------------------------------------------------------------------
 # TestDeskewConfigFromTOML
 # ---------------------------------------------------------------------------
 
