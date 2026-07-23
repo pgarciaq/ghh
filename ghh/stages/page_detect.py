@@ -64,7 +64,13 @@ class PageBorders:
 _BORDER_MIN_SPAN_FRAC = 0.30
 _BORDER_CLUSTER_GAP_PX = 20
 _BORDER_EDGE_MARGIN_FRAC = 0.35
-_BORDER_OFFSET_PX = 3
+
+# Only clip when the quad extends more than this fraction of the image
+# dimension past the border -- small overshoots are parchment margin.
+_BORDER_CLIP_THRESHOLD_FRAC = 0.04
+# When clipping, preserve this fraction of image dimension as margin
+# beyond the border line so the parchment margin isn't lost.
+_BORDER_PRESERVE_MARGIN_FRAC = 0.02
 
 
 def _detect_page_borders(
@@ -235,17 +241,18 @@ def _refine_quad_with_borders(
 ) -> tuple[np.ndarray, bool]:
     """Clip the quad edges inward to the detected page border lines.
 
-    Only adjusts the **left and right** (vertical border) edges.
+    Only adjusts the **left and right** (vertical border) edges, and
+    only when the quad extends **significantly** past the border
+    (more than ``_BORDER_CLIP_THRESHOLD_FRAC`` of image width).
+
+    Small overshoots are normal parchment margin and are preserved.
+    When clipping *is* needed, ``_BORDER_PRESERVE_MARGIN_FRAC`` of the
+    image width is kept beyond the border so the parchment margin
+    isn't completely lost.
+
     Horizontal borders (top/bottom) are intentionally not clipped
     because page titles, page numbers, and margin annotations sit
     outside the red border lines that define the music area.
-
-    Only adjusts quad edges that extend **beyond** the detected border
-    (i.e., into non-page areas like fore edges or desk).  Edges that
-    are already inside the border are left unchanged.
-
-    A small outward offset (``_BORDER_OFFSET_PX``) is added so the red
-    border line itself is included in the output.
 
     Returns ``(refined_quad, applied)`` where *applied* is True if any
     edge was actually adjusted.
@@ -256,30 +263,25 @@ def _refine_quad_with_borders(
     refined = quad.copy()
     applied = False
 
+    clip_threshold = img_w * _BORDER_CLIP_THRESHOLD_FRAC
+    preserve_margin = img_w * _BORDER_PRESERVE_MARGIN_FRAC
+
     # TL=0, TR=1, BR=2, BL=3 (after order_corners)
     if borders.left_x is not None:
-        lx = borders.left_x - _BORDER_OFFSET_PX
-        if refined[0][0] < lx:
-            refined[0][0] = lx
-            applied = True
-        if refined[3][0] < lx:
-            refined[3][0] = lx
-            applied = True
+        lx = borders.left_x - preserve_margin
+        for idx in (0, 3):
+            overshoot = borders.left_x - refined[idx][0]
+            if overshoot > clip_threshold:
+                refined[idx][0] = lx
+                applied = True
 
     if borders.right_x is not None:
-        rx = borders.right_x + _BORDER_OFFSET_PX
-        if refined[1][0] > rx:
-            refined[1][0] = rx
-            applied = True
-        if refined[2][0] > rx:
-            refined[2][0] = rx
-            applied = True
-
-    # Horizontal borders (top_y, bottom_y) are detected but NOT used
-    # for clipping.  In Gregorian chant books the red horizontal lines
-    # mark the music area, while titles, page numbers, and marginal
-    # notes sit above/below them.  Clipping to these lines would lose
-    # page content.
+        rx = borders.right_x + preserve_margin
+        for idx in (1, 2):
+            overshoot = refined[idx][0] - borders.right_x
+            if overshoot > clip_threshold:
+                refined[idx][0] = rx
+                applied = True
 
     refined[:, 0] = np.clip(refined[:, 0], 0, img_w - 1)
     refined[:, 1] = np.clip(refined[:, 1], 0, img_h - 1)

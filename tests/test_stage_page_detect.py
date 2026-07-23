@@ -712,10 +712,13 @@ class TestBorderDetection:
 class TestBorderRefinement:
     """Test quad refinement using detected border lines (#71)."""
 
-    def test_clips_quad_to_borders(self):
-        """Quad extending past borders should be clipped inward."""
+    def test_clips_quad_when_far_past_border(self):
+        """Quad extending far past borders (>4% of image width) should clip."""
         from ghh.stages.page_detect import PageBorders, _refine_quad_with_borders
 
+        # img_w=800 → threshold=32px, margin=16px
+        # Left overshoot: 50-10=40 > 32 → clips to 50-16=34
+        # Right overshoot: 700-650=50 > 32 → clips to 650+16=666
         quad = np.array(
             [[10, 10], [700, 10], [700, 500], [10, 500]], dtype=np.float32,
         )
@@ -724,10 +727,27 @@ class TestBorderRefinement:
         refined, applied = _refine_quad_with_borders(quad, borders, 600, 800, 0.5)
 
         assert applied
-        assert refined[0][0] >= 47, "TL.x should clip to left border"
-        assert refined[3][0] >= 47, "BL.x should clip to left border"
-        assert refined[1][0] <= 653, "TR.x should clip to right border"
-        assert refined[2][0] <= 653, "BR.x should clip to right border"
+        assert refined[0][0] >= 30, "TL.x should clip near left border"
+        assert refined[3][0] >= 30, "BL.x should clip near left border"
+        assert refined[1][0] <= 670, "TR.x should clip near right border"
+        assert refined[2][0] <= 670, "BR.x should clip near right border"
+
+    def test_preserves_parchment_margin(self):
+        """Small overshoot (<4% of image width) is parchment margin -- no clip."""
+        from ghh.stages.page_detect import PageBorders, _refine_quad_with_borders
+
+        # img_w=800 → threshold=32px
+        # Left overshoot: 50-30=20 < 32 → no clip (it's just margin)
+        # Right overshoot: 670-650=20 < 32 → no clip
+        quad = np.array(
+            [[30, 10], [670, 10], [670, 500], [30, 500]], dtype=np.float32,
+        )
+        borders = PageBorders(left_x=50.0, right_x=650.0, confidence=0.8)
+
+        refined, applied = _refine_quad_with_borders(quad, borders, 600, 800, 0.5)
+
+        assert not applied
+        np.testing.assert_array_equal(refined, quad)
 
     def test_leaves_tight_quad_unchanged(self):
         """Quad already inside borders should not be changed."""
@@ -743,8 +763,8 @@ class TestBorderRefinement:
         assert not applied
         np.testing.assert_array_equal(refined, quad)
 
-    def test_partial_border_refinement(self):
-        """Only the left border clips the left edge; right stays unchanged."""
+    def test_partial_border_clips_only_far_side(self):
+        """Only the left border clips when quad extends far past it."""
         from ghh.stages.page_detect import PageBorders, _refine_quad_with_borders
 
         quad = np.array(
@@ -755,7 +775,7 @@ class TestBorderRefinement:
         refined, applied = _refine_quad_with_borders(quad, borders, 600, 800, 0.5)
 
         assert applied
-        assert refined[0][0] >= 47, "TL.x should clip to left border"
+        assert refined[0][0] >= 30, "TL.x should clip near left border"
         assert refined[1][0] == 700, "TR.x should be unchanged (no right border)"
 
     def test_low_confidence_skips_refinement(self):
@@ -805,6 +825,7 @@ class TestBorderRefinement:
         """Only left/right borders clip; top/bottom are preserved."""
         from ghh.stages.page_detect import PageBorders, _refine_quad_with_borders
 
+        # img_w=800, left overshoot=45>32, right overshoot=45>32 → both clip
         quad = np.array(
             [[5, 5], [795, 5], [795, 595], [5, 595]], dtype=np.float32,
         )
@@ -817,10 +838,9 @@ class TestBorderRefinement:
         refined, applied = _refine_quad_with_borders(quad, borders, 600, 800, 0.5)
 
         assert applied
-        assert refined[0][0] >= 47, "TL.x clipped to left border"
-        assert refined[2][0] <= 753, "BR.x clipped to right border"
-        # Horizontal borders should NOT clip -- titles/page numbers
-        # sit outside the red border lines
+        assert refined[0][0] >= 30, "TL.x clipped near left border"
+        assert refined[2][0] <= 770, "BR.x clipped near right border"
+        # Horizontal borders should NOT clip
         assert refined[0][1] == 5, "TL.y should be unchanged"
         assert refined[1][1] == 5, "TR.y should be unchanged"
         assert refined[2][1] == 595, "BR.y should be unchanged"
@@ -834,27 +854,29 @@ class TestBorderRefinement:
 class TestBorderRefinementIntegration:
     """End-to-end integration tests for border-based quad refinement."""
 
-    def test_fore_edge_excluded(self):
-        """A page with a bright fore-edge strip should have it excluded."""
+    def test_large_artifact_excluded(self):
+        """A page with a large non-page strip should have it excluded."""
         from ghh.stages.page_detect import PageDetectStage
 
         stage = PageDetectStage()
+        # Large artifact (150px) exceeds the clip threshold on a 910px image
         img = _make_page_with_fore_edge(
-            width=600, height=800, border=80, fore_edge_width=60,
+            width=600, height=800, border=80, fore_edge_width=150,
         )
         cfg = Config(input_dir=Path("/tmp"))
 
         _, meta = stage.process_image(img, {}, cfg)
 
         corners = np.array(meta["quad_corners"])
-        page_right = 80 + 600
+        fore_edge_start = 80 + 600
+        fore_edge_end = fore_edge_start + 150
 
         tr_x = corners[1][0]
         br_x = corners[2][0]
-        assert tr_x < page_right + 20, \
-            f"TR.x={tr_x} should not extend far into fore-edge (page ends at {page_right})"
-        assert br_x < page_right + 20, \
-            f"BR.x={br_x} should not extend far into fore-edge"
+        assert tr_x < fore_edge_end, \
+            f"TR.x={tr_x} should not extend to end of large artifact ({fore_edge_end})"
+        assert br_x < fore_edge_end, \
+            f"BR.x={br_x} should not extend to end of large artifact"
 
     def test_no_regression_on_clean_page(self):
         """A page with borders on a clean dark background shouldn't degrade."""
@@ -896,7 +918,7 @@ class TestBorderRefinementIntegration:
         perspective = PerspectiveStage()
 
         img = _make_page_with_fore_edge(
-            width=600, height=800, border=80, fore_edge_width=60,
+            width=600, height=800, border=80, fore_edge_width=150,
         )
         cfg = Config(
             input_dir=Path("/tmp"),
@@ -910,4 +932,4 @@ class TestBorderRefinementIntegration:
         if s5_meta["method"] == "warpPerspective":
             rh, rw = result.shape[:2]
             assert rw < img.shape[1], \
-                "Output should be narrower than input (fore-edge excluded)"
+                "Output should be narrower than input (large artifact excluded)"
