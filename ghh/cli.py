@@ -678,6 +678,47 @@ def publish(output_dir, publish_dir, input_dir, max_dim, quality, stage_spec,
         webbrowser.open(f"file://{html_path.resolve()}")
 
 
+@main.command()
+@click.argument("output_dir", type=click.Path(exists=True, file_okay=False))
+@click.option("--stage", type=int, default=None,
+              help="Show only a specific stage number (e.g. --stage 6)")
+@click.option("--json", "as_json", is_flag=True,
+              help="Output machine-readable JSON instead of text")
+def diagnose(output_dir, stage, as_json):
+    """Aggregate sidecar metadata and print per-stage diagnostics.
+
+    Reads all .json sidecar files from checkpoint directories and prints
+    a statistical summary for each stage: value distributions for string
+    fields, min/max/mean for numeric fields, and smart warnings that flag
+    common problems.
+
+    Automatically scans book/ and score/ branch subdirectories if present.
+    """
+    import json as json_mod
+
+    from ghh.diagnose import diagnose as run_diagnose
+    from ghh.diagnose import format_summary, format_summary_json
+
+    output_path = Path(output_dir)
+    summaries = run_diagnose(output_path, stage_filter=stage)
+
+    if not summaries:
+        if stage is not None:
+            click.echo(f"No checkpoint found for stage {stage} in {output_dir}", err=True)
+        else:
+            click.echo(f"No checkpoint directories found in {output_dir}", err=True)
+        return
+
+    if as_json:
+        data = [format_summary_json(s) for s in summaries]
+        click.echo(json_mod.dumps(data, indent=2))
+    else:
+        for i, s in enumerate(summaries):
+            if i > 0:
+                click.echo()
+            click.echo(format_summary(s))
+
+
 @main.command(name="cleanup")
 @click.argument("output_dir", type=click.Path(exists=True, file_okay=False))
 @click.option("--keep", type=str, default=None, help="Comma-separated stage numbers to keep")
