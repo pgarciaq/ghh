@@ -59,23 +59,23 @@ COMMON PREPARATION (stages 0-5)
   2  Orientation
   3  Lens Correct
   4  Page Detect
-  5  Perspective
+  5  Gentle Crop
         │
         ├──────────────────────────┐
         │                          │
   BOOK BRANCH (full page)    SCORE BRANCH (content area)
   8  Deskew (full page)      6  Content Area
-  9  Dewarp (full page)      7  Staff Extract
-  10 Enhance (full page)     8  Deskew (staves)
-  11 Normalize (full page)   9  Dewarp (staves)
-  12 OCR                     10 Enhance (staves)
-        │                    11 Normalize (staves)
+  9  Perspective             7  Staff Extract
+  10 Dewarp (full page)      8  Deskew (staves)
+  11 Enhance (full page)     10 Dewarp (staves)
+  12 Normalize (full page)   11 Enhance (staves)
+  OCR                        12 Normalize (staves)
         │                    13 OMR
+        │                    14 Score Render
         │                          │
         └──────────────────────────┘
         │
   FINALIZATION
-  14 Score Render (GABC → notation images via Gregorio)
   15 PDF Assembly (book pages + score annex)
 ```
 
@@ -115,8 +115,9 @@ COMMON PREPARATION (stages 0-5)
    stages. Score-branch-only.
 
 6. **Score Render (stage 14).** Converts GABC files produced by OMR into
-   typeset notation images using Gregorio/LuaLaTeX. These images are
-   appended as a score annex to the final PDF.
+   typeset notation images using Gregorio/LuaLaTeX. Runs in the Score
+   branch (after OMR). These images are appended as a score annex to the
+   final PDF.
 
 7. **Parallel execution.** The two branches are independent and can run in
    parallel (separate thread pools). Finalization waits for both branches.
@@ -126,11 +127,13 @@ COMMON PREPARATION (stages 0-5)
 
 ### Branch Entry Points
 
-- **Book branch** starts from Stage 5 output (perspective-corrected full
-  pages). It skips Content Area entirely.
+- **Book branch** starts from Stage 5 output (gentle-cropped full pages).
+  It applies Deskew (8), then Perspective (9) using the propagated
+  quad_corners. It skips Content Area entirely.
 - **Score branch** starts from Stage 5 output and immediately applies
   Content Area (6) to crop to the music region, then Staff Extract (7)
-  to isolate staves.
+  to isolate staves. Perspective (9) is skipped in the Score branch
+  because Content Area already produces a clean rectangle.
 
 ---
 
@@ -156,15 +159,17 @@ COMMON PREPARATION (stages 0-5)
 | 10 | Stage 2 (orientation) | **Done** | 31 tests | OSD + adaptive OSD + title + spine cascade; 224/224 on LPA-1 |
 | 11 | Stage 3 (lens correct) | **Done** | 22 tests | Optional; skips when k1=k2=0; `cv2.undistort` with `max(w,h)` focal length |
 | 12 | Stage 4 (page detect) | **Done** | 30 tests | Otsu→inverted Otsu→Canny→adaptive→full-image fallback; ink-aware classification; detect-only (no crop), quad in sidecar |
-| 13 | Stage 5 (perspective) | **Done** | 28 tests | warpPerspective from Stage 4 quad; max-edge sizing; background fill; sidecar propagation |
+| 13 | Stage 5 (gentle crop) | **Done** | 24 tests | Bounding-box crop around Stage 4 quad + margin; quad_corners transform for downstream |
+| -- | Stage 9 (perspective) | **Done** | 58 tests | warpPerspective from propagated quad; max-edge sizing; background fill; near-rect/tilt skip; symlink passthrough |
 | 14 | Stage 6 (content area) | **Done** | 29 tests | Hough border detection→ink density→inset fallback; feathered masking; margin padding; metadata forwarding |
-| 15 | Stage 8 (deskew) | **Done** | 35 tests | Staff-line angle (184) + projection profile (27) + skipped (13); 224/224 on LPA-1 (4m12s); shared image_utils |
+| 15 | Stage 8 (deskew) | **Done** | 31 tests | Staff-line angle + projection profile; ROI mask from quad (#76); quad propagation through rotation+trim (#77); shared image_utils |
+| -- | Quad chain integration | **Done** | 7 tests | End-to-end: Stage 4 → 5 → 8 → 9 quad_corners survival (#82) |
 | 16 | Forked pipeline architecture | Pending | | Branch-aware config, checkpoints, three-phase orchestrator, `--book-only`/`--scores-only` |
 | 17 | Stage 7 (staff extract, score) | Pending | | Isolate music staves from mixed-content pages |
-| 18 | Stage 9 (dewarp) | Pending | | Polynomial mesh from staff lines, AI fallback |
-| 19 | Stage 10 (enhance) | Pending | | Color cast, illumination, shadow, stain, denoise, sharpen |
-| 20 | Stage 11 (normalize) | Pending | | Cross-page color + DPI consistency (batch stage) |
-| 21 | Stage 12 (OCR, book branch) | Pending | | Tesseract/Kraken OCR |
+| 18 | Stage 10 (dewarp) | Pending | | Polynomial mesh from staff lines, AI fallback |
+| 19 | Stage 11 (enhance) | Pending | | Color cast, illumination, shadow, stain, denoise, sharpen |
+| 20 | Stage 12 (normalize) | Pending | | Cross-page color + DPI consistency (batch stage) |
+| 21 | OCR (book branch) | Pending | | Tesseract/Kraken OCR |
 | 22 | Stage 13 (OMR, score branch) | **Done** | 20 tests | OpenVINO inference, GABC output, chant-omr model |
 | 23 | Stage 14 (score render) | Pending | | Gregorio/LuaLaTeX GABC → notation images |
 | 24 | Stage 15 (PDF assembly) | **Done** | 35 tests | img2pdf; JPEG/PNG compression; DPI layout; resume; exclude. Will be updated for book+score merge |
@@ -176,7 +181,7 @@ COMMON PREPARATION (stages 0-5)
 | 30 | CLI polish | Pending | | |
 | 31 | Integration tests | Pending | | |
 
-**Totals:** 531 tests, all green.
+**Totals:** 679 tests, all green.
 
 ---
 
@@ -230,14 +235,18 @@ ghh/
       orientation.py        # Stage  2: EXIF + ink line angle + 180deg disambiguation
       lens_correct.py       # Stage  3 (optional): barrel/pincushion correction (R7)
       page_detect.py        # Stage  4: page quad detection with fallback chain (R2)
-      perspective.py        # Stage  5: perspective correction from quad corners
+      gentle_crop.py        # Stage  5: bounding-box crop around quad + margin
       content_area.py       # Stage  6: border frame detection, edge masking
-      deskew.py             # Stage  7: staff line angle or projection profile
-      dewarp.py             # Stage  8: staff line polynomial mesh or AI dewarping
-      enhance.py            # Stage  9: R3 color cast, illumination, show-through,
+      staff_extract.py      # Stage  7: isolate music staves from mixed content
+      deskew.py             # Stage  8: staff line angle or projection profile + quad propagation
+      perspective.py        # Stage  9: perspective correction from propagated quad (Book branch)
+      dewarp.py             # Stage 10: staff line polynomial mesh or AI dewarping
+      enhance.py            # Stage 11: R3 color cast, illumination, show-through,
                             #   shadows, stains, halos, salt, CLAHE, denoise, sharpen
-      normalize.py          # Stage 11: cross-page color + DPI normalization
-      ocr.py                # Stage 12: Tesseract/Kraken OCR
+      normalize.py          # Stage 12: cross-page color + DPI normalization
+      ocr.py                # OCR: Tesseract/Kraken OCR (Book branch)
+      omr.py                # Stage 13: OMR via chant-omr (Score branch)
+      score_render.py       # Stage 14: Gregorio/LuaLaTeX GABC → notation images
       pdf_assembly.py       # Stage 15: searchable PDF assembly
     utils/
       __init__.py
@@ -270,29 +279,30 @@ output/
   01_stitched/               (partial photo groups merged -- only if partials exist)
   02_oriented/               IMG_0011.png, IMG_0012.png, ...
   03_lens_corrected/         IMG_0011.png, ...   (only if lens distortion detected)
-  04_cropped/                IMG_0011.png, corners.json, ...
-  05_perspective/            IMG_0011.png, ...
+  04_cropped/                IMG_0011.png, IMG_0011.json, ...
+  05_gentle_crop/            IMG_0011.png, IMG_0011.json, ...
 
   # --- Book Branch (full page) ---
   book/
-    08_deskewed/             IMG_0011.png, ...
-    09_dewarped/             IMG_0011.png, ...
-    10_enhanced/             IMG_0011.png, ...
-    11_normalized/           IMG_0011.png, ...   (cross-page color + DPI matched)
-    12_ocr/                  IMG_0011.hocr, ...  (hOCR XML files)
+    08_deskewed/             IMG_0011.png, IMG_0011.json, ...
+    09_perspective/          IMG_0011.png, IMG_0011.json, ...
+    10_dewarped/             IMG_0011.png, ...
+    11_enhanced/             IMG_0011.png, ...
+    12_normalized/           IMG_0011.png, ...   (cross-page color + DPI matched)
+    ocr/                     IMG_0011.hocr, ...  (hOCR XML files)
 
   # --- Score Branch (content area → staves → OMR) ---
   score/
     06_content/              IMG_0011.png, ...   (content area cropped)
     07_staff_extract/        IMG_0011.png, ...   (music staves isolated)
-    08_deskewed/             IMG_0011.png, ...
-    09_dewarped/             IMG_0011.png, ...
-    10_enhanced/             IMG_0011.png, ...
-    11_normalized/           IMG_0011.png, ...
+    08_deskewed/             IMG_0011.png, IMG_0011.json, ...
+    10_dewarped/             IMG_0011.png, ...
+    11_enhanced/             IMG_0011.png, ...
+    12_normalized/           IMG_0011.png, ...
     13_omr/                  *.gabc, *.json      (OMR transcription)
+    14_score_render/         *.png               (Gregorio-rendered notation)
 
   # --- Finalization ---
-  14_score_render/           *.png               (Gregorio-rendered notation)
   15_pdf/                    <book>.pdf, <book>.pdf.json
 
   flipbook/                  index.html, pages/, page-flip.browser.js, flipbook.json
@@ -303,7 +313,7 @@ output/
 The `_find_previous_checkpoint` helper is branch-aware: when resolving
 input for a branch stage, it looks in the branch subdirectory first, then
 falls back to the common output directory (for the branch entry point,
-i.e. Stage 5 output).
+i.e. Stage 5 gentle-crop output).
 
 ---
 
@@ -949,9 +959,10 @@ error_class = "skippable"
 
 4. Pass-through (no crop):
    a. Full image passes through unchanged
-   b. Quad corners stored in metadata sidecar for Stage 5
-   c. Cropping deferred to Stage 5 (perspective correction), which inherently
-      crops via warpPerspective — downstream stages (dewarp, deskew) need full
+   b. Quad corners stored in metadata sidecar for Stage 5 (Gentle Crop)
+   c. Coarse cropping done by Stage 5 (Gentle Crop) as a bounding-box
+      crop with margin. Fine perspective correction deferred to Stage 9
+      after Deskew. Quad corners propagate through Stages 5 → 8 → 9.
       page context including edges
 
 5. Page type classification:
@@ -995,60 +1006,58 @@ page_detect_expand_frac: float = 0.03  # fraction of avg edge length to expand q
 
 - Input: image from `03_lens_corrected/` (or `02_oriented/` if lens correction skipped)
 - Output: **full image unchanged** in `04_page_detected/`, metadata sidecar with quad corners
-- Stage 5 reads the quad corners from the sidecar to apply perspective correction (and crop)
+- Stage 5 reads the quad corners from the sidecar to perform a gentle
+  bounding-box crop, transforming the quad for downstream stages
 
 ---
 
-## Stage 5: Perspective Correction (`perspective.py`) ✅
+## Stage 5: Gentle Crop (`gentle_crop.py`) ✅
+
+Performs a bounding-box crop around the Stage 4 quad with a generous
+margin. No perspective warp or interpolation -- just a numpy slice.
+The quad_corners are translated to the cropped coordinate system and
+written to the output sidecar so they propagate to Deskew (8) and
+Perspective (9).
 
 ### Algorithm (implemented)
 
 ```
-1. Load quad corners from Stage 4 metadata sidecar:
-   a. BaseStage.run() reads {stem}.json from input directory
-   b. Passes metadata dict to process_image()
-   c. If no quad_corners key → pass-through (image unchanged)
-   d. If malformed (not 4x2) or degenerate (side < 10px) → pass-through
+1. Load quad_corners from Stage 4 metadata sidecar.
+   If absent or malformed → passthrough (image unchanged).
 
-2. Order corners TL → TR → BR → BL via order_corners()
+2. Compute bounding box of the quad: x_min, y_min, x_max, y_max.
 
-3. Compute target rectangle (max of opposite edges, not average):
-   width  = max(dist(TL,TR), dist(BL,BR))
-   height = max(dist(TL,BL), dist(TR,BR))
-   Using max prevents content loss from the longer edge.
+3. Add margin: margin = bbox_dimension * gentle_crop_margin_frac (default 3%).
 
-4. Build destination corners:
-   dst = [[0,0], [width-1,0], [width-1,height-1], [0,height-1]]
+4. Clamp to image bounds: [0, 0] to [width, height].
 
-5. Compute transform: M = getPerspectiveTransform(src, dst)
+5. Crop: img[y0:y1, x0:x1].
 
-6. Estimate background color:
-   a. Sample outermost 5% border pixels on all four sides
-   b. Avoid double-counting corner rectangles
-   c. Per-channel median → fill color tuple
+6. Translate quad corners: new_quad = quad - [x0, y0].
 
-7. Apply: warpPerspective(img, M, (width, height),
-       INTER_LINEAR, BORDER_CONSTANT, bg_color)
+7. Write crop_box, margin_frac, and quad_corners to output sidecar.
 ```
-
-Out-of-bounds pixels are filled with the estimated page background color,
-not black. This prevents downstream stages (enhance, normalize) from
-being confused by black corners.
 
 ### Stage attributes
 
 ```python
-name = "perspective"
+name = "gentle_crop"
 number = 5
-checkpoint_name = "05_perspective"
+checkpoint_name = "05_gentle_crop"
 error_class = "skippable"
+```
+
+### Parameters
+
+```python
+gentle_crop_margin_frac: float = 0.03  # 3% margin around quad bounding box
 ```
 
 ### Input/Output
 
-- Input: full image + quad corners from `04_page_detected/` (sidecar JSON)
-- Output: rectangular image in `05_perspective/` (this is where the actual crop happens)
-- Metadata sidecar: stage, method, src_quad, dst_size, background_color
+- Input: full image + quad corners from `04_cropped/` (sidecar JSON)
+- Output: cropped image in `05_gentle_crop/` with transformed quad_corners
+- Metadata sidecar: stage, method, crop_box, margin_frac, quad_corners
 
 ---
 
@@ -1112,38 +1121,35 @@ content_feather_sigma: int = 20
 
 ---
 
-## Stage 8: Deskew (`deskew.py`)
+## Stage 8: Deskew (`deskew.py`) ✅
 
-### Algorithm
+### Algorithm (implemented)
 
 ```
-1. Detect staff lines (line_detect.py with geometric filter)
-2. If lines found: skew_angle = median angle of line segments
-3. If no lines (text-only pages):
-   a. Binary threshold (Otsu)
-   b. Projection profile with coarse-to-fine search:
-      - Coarse: test every 1.0 degree in [-max_angle, +max_angle]
-      - Fine: refine ±1 degree around best in 0.1 steps
-      - Score = variance of row sums. Best = max variance.
-      - Image downscaled to 25% before computing row sums
-        (accuracy is preserved, ~6x speedup).
+1. Load quad_corners from input sidecar (if present).
+2. Downscale image to max 1500px for detection speed.
+   Scale quad_corners by the same factor.
+3. Detect skew angle:
+   a. Staff-line method: detect_dominant_angle() with optional ROI mask
+      from quad_corners (#76). Pixels outside the quad are zeroed
+      before HoughLinesP, preventing background artifacts (desk,
+      covers, fore edges) from corrupting the angle estimate.
+   b. If no staff lines found: projection profile fallback with
+      coarse-to-fine search (also ROI-masked when quad is available).
 4. Clamp angle: if |skew_angle| > deskew_max_angle, clamp and
    log WARNING (may indicate Stage 2 orientation failure).
 5. Skip rotation if |skew_angle| < deskew_skip_threshold (0.1 deg).
-6. Estimate background color: shared estimate_background() utility
-   (median of border pixels, outermost 5%).
-7. Rotate by -skew_angle via cv2.warpAffine with
-   borderMode=cv2.BORDER_CONSTANT, borderValue=bg_color.
+6. Estimate background color: shared estimate_background() utility.
+7. Rotate by -skew_angle via cv2.warpAffine. The 2x3 rotation matrix
+   is retained for quad_corners transformation.
 8. Post-geometry trim (shared trim_to_content() utility):
-   a. Threshold: pixels significantly different from bg_color
-   b. Find bounding rect of non-background region
-   c. Crop to the content bounding box
-   d. Add uniform margin padding (default 2% of width) filled with
-      bg_color
-   Note: Stage 9 (dewarp) also calls trim_to_content() at its end.
-   Running it in both stages handles all skip combinations and the
-   overhead is negligible (~5ms per image).
-9. Forward page_type from input metadata.
+   Returns (image, x_offset, y_offset).
+9. Transform quad_corners (#77):
+   a. Apply rotation matrix M to each corner: M @ [x, y, 1]
+   b. Subtract trim offsets: corner -= [x_offset, y_offset]
+   c. Write transformed quad_corners to output sidecar so
+      Stage 9 (Perspective) receives correct coordinates.
+10. Forward page_type from input metadata.
 ```
 
 ### Parameters
@@ -1156,12 +1162,64 @@ deskew_skip_threshold: float = 0.1
 
 ### Input/Output
 
-- Input: image from `06_content/`
-- Output: deskewed image in `08_deskewed/`
+- Input: image + quad_corners from `05_gentle_crop/` (Book) or `07_staff_extract/` (Score)
+- Output: deskewed image + transformed quad_corners in `08_deskewed/`
 
 ---
 
-## Stage 9: Dewarping (`dewarp.py`)
+## Stage 9: Perspective Correction (`perspective.py`) ✅
+
+Uses the quad corners (propagated from Stage 4 through Gentle Crop
+and Deskew) to map the page to a rectangle via `cv2.warpPerspective`.
+Runs only in the Book branch (Score branch skips it because Content
+Area already produces a clean rectangle).
+
+### Algorithm (implemented)
+
+```
+1. Load quad_corners from Stage 8 (Deskew) metadata sidecar.
+   If absent or malformed → passthrough (symlinked).
+
+2. Order corners TL → TR → BR → BL via order_corners().
+
+3. Compute target rectangle (max of opposite edges):
+   width  = max(dist(TL,TR), dist(BL,BR))
+   height = max(dist(TL,BL), dist(TR,BR))
+
+4. Safety checks (any triggers passthrough):
+   a. Excessive skew or crop ratio → passthrough_unreliable
+   b. Near-rectangular quad (all angles within threshold of 90°)
+      → passthrough_near_rectangular (symlinked)
+   c. Homography introduces more tilt than original quad
+      → passthrough_tilt_introduced
+
+5. Compute transform: M = getPerspectiveTransform(src, dst)
+
+6. Estimate background color (median of border pixels).
+
+7. Apply: warpPerspective(img, M, (width, height),
+       INTER_LINEAR, BORDER_CONSTANT, bg_color)
+```
+
+### Stage attributes
+
+```python
+name = "perspective"
+number = 9
+checkpoint_name = "09_perspective"
+error_class = "skippable"
+symlink_unchanged = True
+```
+
+### Input/Output
+
+- Input: deskewed image + quad corners from `08_deskewed/` (sidecar JSON)
+- Output: rectangular image in `09_perspective/`
+- Metadata sidecar: stage, method, src_quad, dst_size, background_color
+
+---
+
+## Stage 10: Dewarping (`dewarp.py`)
 
 Two paths: classical (default) and AI (optional).
 
@@ -1416,7 +1474,7 @@ normalize_bg_sample_percentile: float = 0.8
 1. Blank page detection: skip if grayscale stddev < 15
 
 2. Notation masking (see K5):
-   a. Load staff line positions from Stage 9 (dewarp) metadata
+   a. Load staff line positions from Stage 10 (dewarp) metadata
    b. For each staff group: mask the region from top staff line - margin
       to bottom staff line + margin with white
    c. This leaves only inter-staff text lines visible to Tesseract
@@ -1701,29 +1759,30 @@ COMMON_STAGES = [
     OrientationStage(),    # 2: rotation + 180-deg disambiguation
     LensCorrectStage(),    # 3: barrel/pincushion correction
     PageDetectStage(),     # 4: page quad detection
-    PerspectiveStage(),    # 5: perspective correction
+    GentleCropStage(),     # 5: bounding-box crop + quad transform
 ]
 
 BOOK_STAGES = [
     DeskewStage(),         # 8: staff line angle or projection profile
-    DewarpStage(),         # 9: polynomial mesh or AI dewarping
-    EnhanceStage(),        # 10: color correction, denoising, sharpening
-    NormalizeStage(),      # 11: cross-page color + DPI
-    OCRStage(),            # 12: Tesseract/Kraken OCR
+    PerspectiveStage(),    # 9: perspective correction from propagated quad
+    DewarpStage(),         # 10: polynomial mesh or AI dewarping
+    EnhanceStage(),        # 11: color correction, denoising, sharpening
+    NormalizeStage(),      # 12: cross-page color + DPI
+    OCRStage(),            # OCR: Tesseract/Kraken OCR
 ]
 
 SCORE_STAGES = [
     ContentAreaStage(),    # 6: border detection + crop
     StaffExtractStage(),   # 7: isolate music staves
     DeskewStage(),         # 8: staff line angle (on staves)
-    DewarpStage(),         # 9: polynomial mesh (on staves)
-    EnhanceStage(),        # 10: color correction (on staves)
-    NormalizeStage(),      # 11: cross-page color + DPI (on staves)
+    DewarpStage(),         # 10: polynomial mesh (on staves)
+    EnhanceStage(),        # 11: color correction (on staves)
+    NormalizeStage(),      # 12: cross-page color + DPI (on staves)
     OmrStage(),            # 13: OMR transcription → GABC
+    ScoreRenderStage(),    # 14: GABC → notation images
 ]
 
 FINAL_STAGES = [
-    ScoreRenderStage(),    # 14: GABC → notation images
     PDFAssemblyStage(),    # 15: final PDF (book pages + score annex)
 ]
 ```
@@ -1747,7 +1806,7 @@ def run_pipeline(cfg: Config) -> PipelineState:
         state.record_result(result)
         input_dir = cfg.output_dir / stage.checkpoint_name
 
-    common_output = input_dir  # Stage 5 output
+    common_output = input_dir  # Stage 5 (gentle crop) output
 
     # --- Phase 2: Branch execution (can run in parallel) ---
     if not cfg.scores_only:
@@ -1780,20 +1839,22 @@ Each stage emits progress via `tqdm` (when available) or plain logging:
 [Stage 0] Pre-processing... 225/225 [00:03, 75.0 img/s]
 [Stage 1] Grouping & stitching... 220/220 [00:15, 14.7 img/s]
 [Stage 2] Orienting images... 220/220 [00:12, 18.3 img/s]
+[Stage 5] Gentle crop... 220/220 [00:02, 110.0 img/s]
 ...
 
 === Book Branch ===
 [Stage 8] Deskew (full page)... 220/220 [02:30, 1.5 img/s]
-[Stage 12] OCR... 220/220 [05:00, 0.7 img/s]
+[Stage 9] Perspective... 220/220 [00:30, 7.3 img/s]
+[OCR] OCR... 220/220 [05:00, 0.7 img/s]
 
 === Score Branch ===
 [Stage 6] Content area... 220/220 [00:45, 4.9 img/s]
 [Stage 7] Staff extract... 184/220 [01:00, 3.1 img/s]
 [Stage 8] Deskew (staves)... 184/184 [01:30, 2.0 img/s]
 [Stage 13] OMR... 184/184 [03:20, 0.9 img/s]
+[Stage 14] Score render... 184/184 [02:00, 1.5 img/s]
 
 === Finalization ===
-[Stage 14] Score render... 184/184 [02:00, 1.5 img/s]
 [Stage 15] Assembling PDF... done (222 pages + 184 scores, 210 MB)
 
 === Pipeline Complete ===
@@ -1856,7 +1917,7 @@ def get_perspective_transform(src, dst) -> np.ndarray: ...
 
 ### image_utils.py
 
-Shared image utilities used by multiple geometric stages (7, 8) and
+Shared image utilities used by multiple geometric stages and
 potentially other stages that need background estimation or content trim.
 
 ```python
@@ -1865,23 +1926,21 @@ def estimate_background(img: np.ndarray, border_frac: float = 0.05) -> tuple[int
 
     Returns BGR color as a 3-tuple. Uses median of border pixel values
     for robustness against content near the edges.
-    Used by: Stage 5 (perspective), Stage 8 (deskew), Stage 9 (dewarp).
+    Used by: Stage 8 (deskew), Stage 9 (perspective), Stage 10 (dewarp).
     """
 
 def trim_to_content(
     img: np.ndarray,
     bg_color: tuple[int, int, int] | None = None,
-    margin_frac: float = 0.02,
+    margin_frac: float = 0.0,
     threshold: int = 30,
-) -> np.ndarray:
-    """Trim background-colored borders and add uniform margin padding.
+) -> tuple[np.ndarray, int, int]:
+    """Trim background-colored borders and optionally add margin padding.
 
-    1. Estimate bg_color if not provided (via estimate_background).
-    2. Threshold: pixels with L1 distance > threshold from bg_color.
-    3. Find bounding rect of non-background region.
-    4. Crop to bounding rect.
-    5. Add uniform margin (margin_frac * width) filled with bg_color.
-    Used by: Stage 8 (deskew), Stage 9 (dewarp).
+    Returns (trimmed_image, x_offset, y_offset) where offsets indicate
+    the crop origin relative to the input image. Used for propagating
+    coordinates (e.g. quad_corners) through the trim.
+    Used by: Stage 8 (deskew), Stage 10 (dewarp).
     """
 ```
 
@@ -1947,14 +2006,15 @@ Stages 6-13 run in one or both branches as indicated.
 | 2 | Orientation | common | **mandatory** | on | Always runs (EXIF at minimum) |
 | 3 | Lens correct | common | auto | skip | No distortion detected (k1 == k2 == 0) |
 | 4 | Page detect | common | **mandatory** | on | Always runs (everything downstream needs it) |
-| 5 | Perspective | common | **mandatory** | on | Always runs (produces rectangle) |
+| 5 | Gentle crop | common | **mandatory** | on | Always runs (crops around quad + margin) |
 | 6 | Content area | score | optional | on | `skip_content_area = true` |
 | 7 | Staff extract | score | optional | on | `skip_staff_extract = true` |
 | 8 | Deskew | both | optional | on | `skip_deskew = true` or angle < 0.1° |
-| 9 | Dewarp | both | optional | on | `skip_dewarp = true` or no staff lines + no AI |
-| 10 | Enhance | both | optional | on | `skip_enhance = true` (sub-steps toggleable) |
-| 11 | Normalize | both | optional | on | `skip_normalize = true` |
-| 12 | OCR | book | optional | on | `--no-ocr` flag or `skip_ocr = true` |
+| 9 | Perspective | book | **mandatory** | on | Always runs in Book branch; skipped in Score |
+| 10 | Dewarp | both | optional | on | `skip_dewarp = true` or no staff lines + no AI |
+| 11 | Enhance | both | optional | on | `skip_enhance = true` (sub-steps toggleable) |
+| 12 | Normalize | both | optional | on | `skip_normalize = true` |
+| -- | OCR | book | optional | on | `--no-ocr` flag or `skip_ocr = true` |
 | 13 | OMR | score | optional | on | `--skip-omr` or `omr_model_dir` not set |
 | 14 | Score render | final | optional | on | Skipped if no GABC files from OMR |
 | 15 | PDF assembly | final | **mandatory** | on | Always runs (it's the output) |
@@ -1987,7 +2047,7 @@ profile = "full"   # default
 | `clean` | Geometry + enhance, no OCR/OMR | book | 0-5, 8-11, 15 | High-quality PDF, no text/music recognition |
 | `quick` | Light enhance, no dewarp/OCR/OMR | book | 0-5, 10 (denoise+sharpen only), 15 | Fast preview |
 
-### Sub-step toggles for Stage 10 (enhance)
+### Sub-step toggles for Stage 11 (enhance)
 
 Each enhancement sub-step has an independent bool flag (already defined
 in stage parameters). The profile or book.toml can disable specific
@@ -2332,10 +2392,12 @@ when a hard failure occurs:
 | 2 | Orientation | critical | **Exclude image** from pipeline |
 | 3 | Lens correct | skippable | Pass through uncorrected image |
 | 4 | Page detect | critical | **Exclude image** from pipeline |
-| 5 | Perspective | critical | **Exclude image** from pipeline |
+| 5 | Gentle crop | skippable | Pass through uncropped image |
 | 6 | Content area | skippable | Pass through with fixed 5% inset |
-| 7 | Deskew | skippable | Pass through unskewed image |
-| 8 | Dewarp | skippable | Pass through undistorted image |
+| 7 | Staff extract | skippable | Pass through full content area |
+| 8 | Deskew | skippable | Pass through unskewed image |
+| 9 | Perspective | skippable | Pass through (symlinked) |
+| 10 | Dewarp | skippable | Pass through undistorted image |
 | 9 | Enhance | skippable | Pass through unenhanced image |
 | 10 | Normalize | skippable | Pass through unnormalized image |
 | 11 | OCR | skippable | No text layer for this page |
@@ -2446,16 +2508,16 @@ Console (default):
 ```
 [Stage 2] Orienting images... 225/225 [00:12, 18.7 img/s]
 [Stage 2]   3 images flagged: IMG_0080 (low focus: 45.2)
-[Stage 9] Dewarping images... 222/222 [01:45, 2.1 img/s]
-[Stage 9]   210 dewarped (staff lines), 12 passthrough (text pages)
-[Stage 9]   ERROR: IMG_0080.JPG skipped (ValueError in polynomial fit)
+[Stage 10] Dewarping images... 222/222 [01:45, 2.1 img/s]
+[Stage 10]   210 dewarped (staff lines), 12 passthrough (text pages)
+[Stage 10]   ERROR: IMG_0080.JPG skipped (ValueError in polynomial fit)
 ```
 
 Console (verbose):
 ```
-[Stage 9] IMG_0011.JPG: 14 staff lines, poly R²=0.997, 0.42s
-[Stage 9] IMG_0012.JPG: 16 staff lines, poly R²=0.999, 0.38s
-[Stage 9] IMG_0013.JPG: 0 staff lines, passthrough (text page), 0.02s
+[Stage 10] IMG_0011.JPG: 14 staff lines, poly R²=0.997, 0.42s
+[Stage 10] IMG_0012.JPG: 16 staff lines, poly R²=0.999, 0.38s
+[Stage 10] IMG_0013.JPG: 0 staff lines, passthrough (text page), 0.02s
 ```
 
 Log file (always):
@@ -2471,7 +2533,7 @@ Log file (always):
 After each stage completes, a summary line is logged at INFO level:
 
 ```
-[Stage 9] Complete: 210/222 dewarped, 12 passthrough, 0 failed. Total: 1m45s
+[Stage 10] Complete: 210/222 dewarped, 12 passthrough, 0 failed. Total: 1m45s
 ```
 
 This is also written to `pipeline.json` for programmatic access.
@@ -2511,10 +2573,10 @@ deep learning. Every stage uses deterministic, interpretable algorithms:
 | Hough Line Transform | Stages 2, 6, 7, 8 | Staff line and border detection |
 | HSV color filtering | line_detect.py | Ink color isolation |
 | Morphological operations | Multiple stages | Mask cleaning, gap bridging |
-| Polynomial fitting | Stage 9 | Staff line curvature modeling |
-| Perspective transform | Stage 5 | Geometric correction |
-| cv2.remap | Stage 9 | Dewarping via displacement mesh |
-| CLAHE | Stage 10 | Adaptive contrast enhancement |
+| Polynomial fitting | Stage 10 | Staff line curvature modeling |
+| Perspective transform | Stage 9 | Geometric correction |
+| cv2.remap | Stage 10 | Dewarping via displacement mesh |
+| CLAHE | Stage 11 | Adaptive contrast enhancement |
 | ORB feature matching | Stage 1 | Stitch group detection |
 | cv2.Stitcher | Stage 1 | Panoramic stitching (ORB-based, not neural) |
 | cv2.inpaint (Telea) | Stage 0 | PDE-based inpainting for hotspots/fingers |
@@ -2542,7 +2604,7 @@ deep learning. Every stage uses deterministic, interpretable algorithms:
 
 Only one place, only when explicitly requested:
 
-- **Stage 9 dewarp, AI path** (`--ai-dewarp`): DocTr GeoTr model,
+- **Stage 10 dewarp, AI path** (`--ai-dewarp`): DocTr GeoTr model,
   converted to OpenVINO IR (FP16), runs on Intel Arc GPU. Used as
   fallback when classical dewarping finds fewer than 2 staff lines
   (text-only pages, decorative pages). Requires `openvino` (optional
@@ -2604,12 +2666,12 @@ OMR-friendly:
 
 1. **Lossless checkpoints (PNG)**: OMR needs clean pixel data, not
    JPEG-compressed artifacts around note heads.
-2. **Staff line detection metadata**: Stage 9 (dewarp) stores staff positions,
+2. **Staff line detection metadata**: Stage 10 (dewarp) stores staff positions,
    polynomial coefficients, and cluster assignments. OMR needs exactly
    this data to locate staves.
 3. **Page type classification**: Stage 4 classifies pages as "music",
    "text", "decorative", etc. OMR only processes "music" pages.
-4. **Dewarped staff lines**: After Stage 9, staff lines are straight
+4. **Dewarped staff lines**: After Stage 10, staff lines are straight
    and horizontal -- the ideal input for OMR symbol detection.
 5. **Notation masking** (Stage 12): The OCR stage already masks staff
    regions. The inverse mask (notation regions only) is exactly what
@@ -2689,9 +2751,9 @@ GABC output. This is a standalone research/engineering project.
 Fallback if end-to-end proves too complex:
 
 ```
-Input: dewarped images from Stage 9 + staff line metadata
+Input: dewarped images from Stage 10 + staff line metadata
 
-1. Staff line removal: use Stage 9 staff positions to precisely
+1. Staff line removal: use Stage 10 staff positions to precisely
    remove staff lines, leaving only notes, clefs, accidentals, text
 2. Symbol segmentation: connected components or neural detection
    (YOLO-based or similar) to isolate individual symbols
@@ -2725,18 +2787,19 @@ optimally prepared input:
 - **Stage 7 (Staff Extract)** isolates music staves from mixed-content
   pages (illustrations, decorative initials), ensuring OMR receives only
   musical notation.
-- **Stages 8-11 (Deskew, Dewarp, Enhance, Normalize)** run with
+- **Stages 8, 10-12 (Deskew, Dewarp, Enhance, Normalize)** run with
   score-branch-specific parameters optimized for notation clarity rather
-  than faithful page reproduction.
+  than faithful page reproduction. Perspective (Stage 9) is skipped in
+  the Score branch because Content Area already produces a clean rectangle.
 - **Stage 13 (OMR)** consumes the cleaned, content-area-cropped,
   staff-extracted, dewarped images and produces `.gabc` files.
 - **Stage 14 (Score Render)** converts GABC to typeset notation images
-  via Gregorio/LuaLaTeX.
+  via Gregorio/LuaLaTeX. Runs in the Score branch after OMR.
 - **Stage 15 (PDF Assembly)** combines Book branch pages with rendered
   scores as an annex.
 
-The Book branch runs OCR (Stage 12) independently on full pages,
-producing searchable text in the PDF without interfering with OMR.
+The Book branch runs OCR independently on full pages, producing
+searchable text in the PDF without interfering with OMR.
 
 ---
 
@@ -2779,14 +2842,16 @@ Config-aware invalidation:
     Stage 2:  [orient_*, staff_color_*, focus_*]
     Stage 3:  [lens_*]
     Stage 4:  [page_detect_*]
-    Stage 5:  (none -- only depends on Stage 4 corners)
+    Stage 5:  [gentle_crop_*]
     Stage 6:  [content_*, staff_color_*, has_border_frame]
     Stage 8:  [deskew_*, staff_color_*]
-    Stage 9:  [dewarp_*, staff_color_*, ai_dewarp]
-    Stage 10: [enhance_*, color_cast_*, shadow_*, stain_*, halo_*, salt_*]
-    Stage 11: [normalize_*]
-    Stage 12: [ocr_*]
+    Stage 9:  [perspective_*]
+    Stage 10: [dewarp_*, staff_color_*, ai_dewarp]
+    Stage 11: [enhance_*, color_cast_*, shadow_*, stain_*, halo_*, salt_*]
+    Stage 12: [normalize_*]
+    OCR:      [ocr_*]
     Stage 13: [omr_*]
+    Stage 14: (depends on Stage 13 GABC output)
     Stage 15: [pdf_*]
 
   If any field in a stage's dependency set has changed since the last
@@ -2834,7 +2899,7 @@ Worker count auto-scales to available RAM, not just CPU count.
    - Stage 1 (stitch): single-threaded for stitch groups (high
      memory, internally parallelized by cv2.Stitcher), parallel
      for standalone images
-   - Stage 11 (normalize): two-pass -- first pass collects stats
+   - Stage 12 (normalize): two-pass -- first pass collects stats
      (parallel), second pass applies normalization (parallel)
    - Stage 15 (PDF): single-threaded (sequential assembly)
 
@@ -2931,17 +2996,19 @@ on synthetic images:
 11. ~~**Real image smoke test**~~: ✅ Stages 0-1-2 on full LPA-1 set (225 images), visual inspection confirmed 224/224 correct orientation
 12. ~~**Stage 3** (lens correct, optional)~~: ✅ radial distortion correction (R7) via `cv2.undistort`, auto-skip when k1=k2=0, `max(w,h)` focal length (22 tests)
 13. ~~**Stage 4** (page detect)~~: ✅ Otsu→inverted Otsu→Canny→adaptive→full-image cascade, quad refinement with escalating epsilon, ink-aware page classification, bounding-box crop (27 tests)
-14. ~~**Stage 5** (perspective)~~: ✅ warpPerspective from Stage 4 quad, max-edge sizing, background fill (not black), sidecar propagation via BaseStage.run() (28 tests)
+14. ~~**Stage 5** (gentle crop)~~: ✅ bounding-box crop around quad + margin, quad_corners transform (24 tests)
+--. ~~**Stage 9** (perspective)~~: ✅ warpPerspective from propagated quad, max-edge sizing, background fill, near-rect/tilt skip, symlink passthrough (58 tests)
 15. ~~**Stage 6** (content area)~~: ✅ Hough border detection→ink density→inset fallback; feathered masking; margin padding; sidecar forwarding (29 tests)
-16. ~~**Stage 8** (deskew)~~: ✅ staff angle or projection profile, post-geometry trim (35 tests)
+16. ~~**Stage 8** (deskew)~~: ✅ staff angle or projection profile; ROI mask from quad (#76); quad propagation through rotation+trim (#77) (31 tests)
+--. ~~**Quad chain integration**~~: ✅ end-to-end Stage 4 → 5 → 8 → 9 quad_corners survival (7 tests)
 17. **Forked pipeline architecture**: branch-aware config (`for_branch()`), branch-aware checkpoints, three-phase orchestrator, `--book-only` / `--scores-only` CLI flags
 18. **Stage 7** (staff extract, score branch): isolate music staves from mixed-content pages
-19. **Stage 9** (dewarp): polynomial mesh from staff lines, background fill (most complex stage)
-20. **Stage 10** (enhance): R3 color cast, illumination, shadows (R5), stains (R6), halos (R10), show-through, CLAHE, salt (R11), denoise, sharpen
-21. **Stage 11** (normalize): cross-page color + DPI (global pass, batch stage)
-22. **Stage 12** (OCR, book branch): Tesseract integration, graceful skip if missing, Kraken optional
+19. **Stage 10** (dewarp): polynomial mesh from staff lines, background fill (most complex stage)
+20. **Stage 11** (enhance): R3 color cast, illumination, shadows (R5), stains (R6), halos (R10), show-through, CLAHE, salt (R11), denoise, sharpen
+21. **Stage 12** (normalize): cross-page color + DPI (global pass, batch stage)
+22. **OCR** (book branch): Tesseract integration, graceful skip if missing, Kraken optional
 23. ~~**Stage 13** (OMR, score branch)~~: ✅ OpenVINO inference, GABC output, chant-omr model (20 tests)
-24. **Stage 14** (score render): Gregorio/LuaLaTeX GABC → notation images
+24. **Stage 14** (score render): Gregorio/LuaLaTeX GABC → notation images (Score branch)
 25. ~~**Stage 15** (PDF)~~: ✅ img2pdf assembly, JPEG/PNG compression, case-insensitive config, DPI layout, resume, exclude (35 tests). Will be updated to merge book pages + score annex.
 25. ~~**`ghh flipbook`**~~: ✅ StPageFlip HTML flipbook; vendored JS; PDF download; --with-flipbook/--with-pdf on publish (32 tests)
 26. **pipeline.py**: three-phase orchestrator -- common → branches → finalization, progress reporting, end-of-run summary
